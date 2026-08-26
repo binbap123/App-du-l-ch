@@ -6,3 +6,11 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Database & metadata
+db.json
+metadata.json
+
+# TypeScript & Vite
+*.tsbuildinfo
+.vite/
