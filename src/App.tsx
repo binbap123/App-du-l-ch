@@ -182,6 +182,7 @@ export default function App() {
           <AIAssistantView
             onLoadItineraryToBuilder={handleLoadItineraryToBuilder}
             prefillDestination={prefillAIDestination}
+            onClearPrefill={() => setPrefillAIDestination("")}
           />
         )}
 

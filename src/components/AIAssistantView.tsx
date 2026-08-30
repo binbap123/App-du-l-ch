@@ -4,11 +4,13 @@ import { ChatMessage, WanderItineraryData } from "../types";
 interface AIAssistantViewProps {
   onLoadItineraryToBuilder: (data: WanderItineraryData) => void;
   prefillDestination?: string;
+  onClearPrefill?: () => void;
 }
 
 export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
   onLoadItineraryToBuilder,
   prefillDestination,
+  onClearPrefill,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -21,31 +23,39 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const isSendingRef = useRef(false);
+  const handledPrefillRef = useRef<string | null>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
   useEffect(() => {
-    if (prefillDestination) {
-      handlePromptClick(`Lên kế hoạch đi ${prefillDestination} 3N2Đ săn đặc sản và check-in TikTok`);
+    if (prefillDestination && prefillDestination !== handledPrefillRef.current) {
+      handledPrefillRef.current = prefillDestination;
+      const prompt = `Lên kế hoạch đi ${prefillDestination} 3N2Đ săn đặc sản và check-in TikTok`;
+      handleSendMessage(prompt);
+      onClearPrefill?.();
     }
-  }, [prefillDestination]);
+  }, [prefillDestination, onClearPrefill]);
 
   const handleSendMessage = async (textToSend?: string) => {
     const query = (textToSend || inputText).trim();
-    if (!query || isLoading) return;
+    if (!query || isSendingRef.current) return;
 
+    isSendingRef.current = true;
+    setIsLoading(true);
+    if (!textToSend) setInputText("");
+
+    const msgId = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const userMsg: ChatMessage = {
-      id: Date.now().toString(),
+      id: msgId,
       sender: "user",
       text: query,
       timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
     };
 
     setMessages((prev) => [...prev, userMsg]);
-    if (!textToSend) setInputText("");
-    setIsLoading(true);
 
     try {
       // Call the unified chat API with history
@@ -61,7 +71,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
       const result = await response.json();
 
       const aiMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
+        id: `${Date.now() + 1}-${Math.random().toString(36).substring(2, 7)}`,
         sender: "ai",
         text: result.reply || "Xin lỗi, tôi gặp sự cố nhỏ. Hãy thử lại nhé!",
         timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
@@ -74,7 +84,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
       setMessages((prev) => [
         ...prev,
         {
-          id: (Date.now() + 1).toString(),
+          id: `${Date.now() + 1}-${Math.random().toString(36).substring(2, 7)}`,
           sender: "ai",
           text: "Xin lỗi, hiện tại tôi không thể kết nối server. Hãy kiểm tra kết nối mạng và thử lại nhé!",
           timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
@@ -82,11 +92,8 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
       ]);
     } finally {
       setIsLoading(false);
+      isSendingRef.current = false;
     }
-  };
-
-  const handlePromptClick = (promptText: string) => {
-    handleSendMessage(promptText);
   };
 
   return (
@@ -111,58 +118,8 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
           </p>
         </div>
 
-        {/* Suggested Prompts Bento Grid */}
-        <div className="grid grid-cols-2 gap-3 mt-1">
-          <button
-            onClick={() => handlePromptClick("Lên kế hoạch đi Đà Lạt 3 ngày 2 đêm thư giãn")}
-            className="bg-white rounded-2xl p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-[#E5E7EB] hover:border-[#FF6B35] hover:shadow-[0_8px_24px_rgba(255,107,53,0.12)] transition-all text-left flex flex-col gap-1.5 active:scale-95 group"
-          >
-            <span className="material-symbols-outlined text-[#FF6B35] text-[24px]">
-              landscape
-            </span>
-            <span className="text-[15px] font-bold text-[#111827] group-hover:text-[#FF6B35] transition-colors">
-              Lên kế hoạch đi Đà Lạt
-            </span>
-            <span className="text-[12px] text-[#6B7280] line-clamp-2">
-              Lịch trình 3 ngày 2 đêm thư giãn.
-            </span>
-          </button>
-
-          <button
-            onClick={() => handlePromptClick("Tìm quán ăn ngon đặc sản ở Hội An")}
-            className="bg-white rounded-2xl p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-[#E5E7EB] hover:border-[#FF6B35] hover:shadow-[0_8px_24px_rgba(255,107,53,0.12)] transition-all text-left flex flex-col gap-1.5 active:scale-95 group"
-          >
-            <span className="material-symbols-outlined text-[#FF6B35] text-[24px]">
-              restaurant
-            </span>
-            <span className="text-[15px] font-bold text-[#111827] group-hover:text-[#FF6B35] transition-colors">
-              Tìm quán ăn ngon ở Hội An
-            </span>
-            <span className="text-[12px] text-[#6B7280] line-clamp-2">
-              Đặc sản địa phương không thể bỏ qua.
-            </span>
-          </button>
-
-          <button
-            onClick={() => handlePromptClick("Gợi ý cho tôi một điểm đến du lịch thiên nhiên ngẫu nhiên")}
-            className="bg-white rounded-2xl p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-[#E5E7EB] hover:border-[#FF6B35] hover:shadow-[0_8px_24px_rgba(255,107,53,0.12)] transition-all text-left flex flex-col gap-1 col-span-2 active:scale-95 group"
-          >
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="material-symbols-outlined text-[#FF6B35] text-[24px]">
-                flight_takeoff
-              </span>
-              <span className="text-[15px] font-bold text-[#111827] group-hover:text-[#FF6B35] transition-colors">
-                Gợi ý điểm đến ngẫu nhiên
-              </span>
-            </div>
-            <span className="text-[12px] text-[#6B7280]">
-              Dựa trên sở thích du lịch thiên nhiên của bạn.
-            </span>
-          </button>
-        </div>
-
         {/* Chat History Messages */}
-        <div className="flex flex-col gap-3 mt-3">
+        <div className="flex flex-col gap-3 mt-2">
           {messages.map((msg) => (
             <div
               key={msg.id}

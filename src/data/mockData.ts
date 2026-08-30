@@ -135,6 +135,56 @@ export const DEFAULT_ITINERARY_DANANG: WanderItineraryData = {
           image_url: "https://lh3.googleusercontent.com/aida-public/AB6AXuAhVcPCWTtQeFF_dVK1usyPbZsOvPTp8_JOrchAvrWF39mD5hCChgph1LO2T5cBv3_OlJUctlTNuNjFrVrEWEr4zkwqCVsMNhweJ0EIqnljIAux32NjXXOhIrCL6m9WDY_3HzZ4ipc4nf7vTRtXWlKJSJQVqqMdFGj9kM9BeiPQgUM6PuJ5k7SutOZ-oz9b-ACQGRgD19xtQfVPpFcfb43bjs-q3QbI6V8edMmOpNtJC-cwqPghOSvX"
         }
       ]
+    },
+    {
+      day_number: 3,
+      day_title: "Bà Nà Hills, Cầu Vàng & Mua sắm Chợ Hàn",
+      schedule: [
+        {
+          id: "dn_item6",
+          time_slot: "08:00 - 13:30",
+          time_period: "morning",
+          place_name: "Sun World Bà Nà Hills & Cầu Vàng",
+          category: "attraction",
+          category_icon: "photo_camera",
+          address_hint: "Hòa Phú, Hòa Vang, Đà Nẵng",
+          recommended_dish_or_activity: "Check-in Cầu Vàng Bàn Tay Khổng Lồ, ngắm Làng Pháp mộng mơ",
+          cost_vnd: 850000,
+          social_trend: {
+            is_viral: true,
+            platform: "tiktok",
+            badge_label: "Biểu tượng du lịch quốc tế",
+            sentiment_score: 0.99
+          },
+          ui_card: {
+            badge_color: "#1B6D24",
+            quick_description: "Kỳ quan kiến trúc thế giới"
+          },
+          image_url: "https://lh3.googleusercontent.com/aida-public/AB6AXuCQaeLXcuxT8j0GQ-8ehr1wvon3ary3s-08q3238jTI_mjWLZ4xJqRcyx-FDcO_PId8Cy05ZyPzULXmsFiyoJd5quv6YJPAgl7Q0l3KK9_5Gro1sXZ6KzEYwyfaMjLWmUzFyxm2EBAErAoTWxJWbJVCbNOh-iSXbNYquOHWPfUNCCUUybNuLVtKuW-BbGUWoNokOowCY2mOuMailuPADz0C7Qzz3LKe0yssD0WOQxhBcS8A9rndZGIj"
+        },
+        {
+          id: "dn_item7",
+          time_slot: "15:00 - 17:00",
+          time_period: "afternoon",
+          place_name: "Chợ Hàn - Mua đặc sản làm quà",
+          category: "food_specialty",
+          category_icon: "restaurant",
+          address_hint: "119 Trần Phú, Hải Châu 1, Đà Nẵng",
+          recommended_dish_or_activity: "Mua chả bò Đà Nẵng, mực rim me, bánh khô mè Cẩm Lệ",
+          cost_vnd: 200000,
+          social_trend: {
+            is_viral: true,
+            platform: "facebook",
+            badge_label: "Thiên đường mua sắm đặc sản",
+            sentiment_score: 0.94
+          },
+          ui_card: {
+            badge_color: "#FF6B35",
+            quick_description: "Đặc sản chính gốc mang về"
+          },
+          image_url: "https://lh3.googleusercontent.com/aida-public/AB6AXuAwsezEKNM0xjso44KApjBlIAZZaPR8BbuF26IKDs89_HhDPxwROMoWQaPVUNDfJc_4Lv8HIQl4ARTiJ3iITULMA23cBds30WWklqCkoT_cB6eE750YoXTAo-Lu7qqSEdkulhVCRssUi992duh2VP-W9NxV3tFWolnDdoKQFDyDecT7QIYPjcWCJBjcxsGW99ZYhkkDCnbO8ltcNpHXOm6SnEMtCDoMdlsUKGzYpgYjh0jUqWckqEUR"
+        }
+      ]
     }
   ],
   budget_breakdown: {

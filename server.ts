@@ -4,6 +4,8 @@ import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import fs from "fs";
+import { getSampleItinerary, parseDurationDays, extractDestinationFromText } from "./src/data/sampleItineraries.js";
+import { searchLocalPlaces, VERIFIED_VIETNAM_PLACES, PlaceSearchResult } from "./src/data/placesData.js";
 
 dotenv.config();
 
@@ -22,7 +24,7 @@ function readDb(): any[] {
     if (!fs.existsSync(DB_FILE)) {
       const defaultList = [
         getSampleItinerary("Đà Nẵng", "3N2Đ") as any,
-        getSampleItinerary("Phú Quốc", "5N4Đ") as any
+        getSampleItinerary("Phú Quốc", "3N2Đ") as any
       ];
       defaultList[0].id = "trip_danang";
       defaultList[1].id = "trip_phuquoc";
@@ -31,7 +33,6 @@ function readDb(): any[] {
     }
     const data = fs.readFileSync(DB_FILE, "utf-8");
     const parsed = JSON.parse(data || "{}");
-    // Support both old array format and new object format
     if (Array.isArray(parsed)) return parsed;
     return parsed.itineraries || [];
   } catch (err) {
@@ -47,7 +48,11 @@ function writeDb(data: any[]) {
     if (fs.existsSync(DB_FILE)) {
       const raw = fs.readFileSync(DB_FILE, "utf-8");
       const tmp = JSON.parse(raw || "{}");
-      if (!Array.isArray(tmp)) existing = tmp;
+      if (Array.isArray(tmp)) {
+        existing = { itineraries: tmp, trending_spots: [] };
+      } else {
+        existing = tmp;
+      }
     }
     existing.itineraries = data;
     fs.writeFileSync(DB_FILE, JSON.stringify(existing, null, 2), "utf-8");
@@ -79,6 +84,10 @@ Your primary function is to generate highly personalized travel itineraries, aut
 1. OPERATIONAL & BEHAVIORAL RULES
 =========================================
 - ALWAYS respond in strict JSON format matching the schema provided below. DO NOT enclose the JSON in markdown blocks (no \`\`\`json ... \`\`\`) and do not write any introductory or concluding prose.
+- MULTI-DAY ITINERARY REQUIREMENT (CRITICAL):
+  - You MUST generate the exact number of days matching the duration parameter in the request (e.g. '3N2Đ' or '3 ngày' = EXACTLY 3 days in the itinerary array: Day 1, Day 2, Day 3; '2N1Đ' = 2 days; '4N3Đ' = 4 days; '5N4Đ' = 5 days).
+  - NEVER return only 1 day when the requested duration is 2 or more days!
+  - Each day MUST contain 3 to 4 distinct items across morning, afternoon, evening, and night.
 - FRONTEND READY: Output UI layout hints, color codes, category icons, and social badges so the client can directly render native cards, timelines, and maps.
 - BACKEND & MAP COMPATIBLE: Include normalized location keys, precise category tags, address hints, and budget metrics in Vietnamese Dong (VND).
 - LOCAL & TRENDING FOCUS: Prioritize authentic regional food specialties and currently viral spots on TikTok, Threads, and Facebook. Group nearby places logically by geographic proximity to minimize travel time.
@@ -93,22 +102,24 @@ app.get("/api/health", (_req, res) => {
 app.post("/api/generate-itinerary", async (req, res) => {
   try {
     const { destination, duration, preferences, budget } = req.body;
+    const targetDuration = duration || "3N2Đ";
+    const targetDays = parseDurationDays(targetDuration);
     const ai = getGeminiClient();
 
     if (!ai) {
       return res.status(200).json({
         fallback: true,
         message: "Key API Gemini chưa được cấu hình. Sử dụng dữ liệu mẫu thông minh.",
-        data: getSampleItinerary(destination || "Đà Nẵng", duration || "3N2Đ")
+        data: getSampleItinerary(destination || "Đà Nẵng", targetDuration)
       });
     }
 
-    const promptText = `Tạo lịch trình du lịch thông minh WanderAI cho điểm đến: ${destination || "Đà Nẵng"}, thời gian: ${duration || "3N2Đ"}. 
+    const promptText = `Tạo lịch trình du lịch thông minh WanderAI cho điểm đến: ${destination || "Đà Nẵng"}, thời gian: ${targetDuration} (YÊU CẦU BẮT BUỘC: Tạo đủ ${targetDays} ngày trong mảng itinerary, từ day_number 1 đến day_number ${targetDays}). 
 Sở thích / yêu cầu đặc biệt: ${preferences || "Săn đặc sản ẩm thực địa phương, điểm check-in HOT TikTok / Threads, thiên nhiên thư giãn"}.
 Ngân sách dự kiến: ${budget || "3.000.000 đ"}.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.7-flash",
       contents: promptText,
       config: {
         systemInstruction: WANDER_SYSTEM_INSTRUCTION,
@@ -223,7 +234,7 @@ Ngân sách dự kiến: ${budget || "3.000.000 đ"}.`;
 });
 
 // Get all itineraries from database
-app.get("/api/itineraries", (req, res) => {
+app.get("/api/itineraries", (_req, res) => {
   const list = readDb();
   res.json({ success: true, data: list });
 });
@@ -264,60 +275,57 @@ app.delete("/api/itineraries/:id", (req, res) => {
 
 // ─── TRENDING SPOTS API ───────────────────────────────────────────────────────
 
-// Fallback trending spots data (when no Gemini API key)
 const FALLBACK_TRENDING: any[] = [
   {
-    id: "trend_1", name: "Bánh mì Phương Hội An", city: "Hội An",
+    id: "trend_1", name: "Bánh mì Phượng Hội An", city: "Hội An",
     platform: "tiktok", badge_label: "48M views TikTok", views: "48M",
     imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuAhVcPCWTtQeFF_dVK1usyPbZsOvPTp8_JOrchAvrWF39mD5hCChgph1LO2T5cBv3_OlJUctlTNuNjFrVrEWEr4zkwqCVsMNhweJ0EIqnljIAux32NjXXOhIrCL6m9WDY_3HzZ4ipc4nf7vTRtXWlKJSJQVqqMdFGj9kM9BeiPQgUM6PuJ5k7SutOZ-oz9b-ACQGRgD19xtQfVPpFcfb43bjs-q3QbI6V8edMmOpNtJC-cwqPghOSvX",
-    category: "food", description: "Ổ bánh mì nhân thập cẩm huyền thoại được CNN bình chọn ngon nhất thế giới"
+    category: "food", description: "Ổ bánh mì nhân thập cẩm huyền thoại được du khách trong nước và quốc tế yêu thích"
   },
   {
     id: "trend_2", name: "Hang Múa Ninh Bình", city: "Ninh Bình",
     platform: "threads", badge_label: "Trending Threads", views: "8.2M",
     imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuCuwFXQQyp_cy_d1SrK3rB4umhsqdOgKAjlUJCSgSUHm3VA9reVPoujuwBZ1XfY0bfmWzxh7vXmj9ZIUjcXYEWIeGCRMNgyoy3qUvNi4FT7-hsTRP8WXPfLVlSYJRppWGfag09cp6uf4emZZPduJN6iNc66AHmKb-bkWEIfrYJ4v_m-DpqGzJtsJ07EUPyZxDal27J5dUJuGZb3UD9_RhF5v2MvSlrXDRI3BpUK01f8WTCDEzBd4sD-",
-    category: "attraction", description: "Leo 486 bậc đá ngắm đồng lúa xanh rì - góc ảnh đẹp không kém bờ tường Trung Hoa"
+    category: "attraction", description: "Leo 486 bậc đá ngắm toàn cảnh sông Ngô Đồng và mùa lúa Tam Cốc đẹp mê hồn"
   },
   {
     id: "trend_3", name: "Eo Gió Quy Nhơn", city: "Quy Nhơn",
-    platform: "instagram", badge_label: "Instagram Reels HOT", views: "12M",
+    platform: "facebook", badge_label: "Facebook Reels HOT", views: "12M",
     imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBamVqi82kE91WpwMhDWCKxiFFwKETksdgL7bKhJ2XKj28pGydUB5ccPL-rGDm3DMkbPLYUqGk_LjhV3UJxDghEwwbIsRtqUgyfxYaxf3FymP77oRXFUbyrjH1rGE3-rx8MuMy3m_J-22Ni_QkZ6ToEkcr6EudNLqAH_6KTGOfAXeUwgtCqnO9p_SWjZhdU3FMztLhK8kJYh5XEochW3kOplcjKV377oJvaGAeycn2h9o5XXCVEpKRf",
-    category: "nature", description: "Vách đá ven biển gió lộng, cầu tay vịn đỏ cực HOT check-in"
+    category: "nature", description: "Vách đá ven biển gió lộng với con đường dạo bộ ôm sát biển cực kỳ ấn tượng"
   },
   {
     id: "trend_4", name: "Chợ nổi Cái Răng", city: "Cần Thơ",
     platform: "tiktok", badge_label: "TikTok Du lịch VN", views: "22M",
     imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuCHWz4XfHJFN1sFi6DHrr9WoRDrImQhB990WTXerEss2qvN9KuLoS16GZmr14q5Tel0UFmrwwdNZEQ7qGUgvtz0iqch4AtndiD4uAPMQjkTT2FJxrXkUF0cgltMFxFdQiR1rn207BmpL6s9gRE7yNkytSls3t_bHTRFDWReAYu51Y24PLDuMcFy_E7vHoLKCguI2lbsNObWIo9QTrP1MJsZ8EaXAed1Sc9E0BVY1lqtUZziHbmWrN7J",
-    category: "attraction", description: "Chợ nổi sông nước miền Tây độc đáo họp từ tờ mờ sáng"
+    category: "attraction", description: "Chợ nổi sông nước miền Tây độc đáo họp từ tờ mờ sáng với món hủ tiếu ghe trứ danh"
   },
   {
     id: "trend_5", name: "Sunset Sanato Phú Quốc", city: "Phú Quốc",
-    platform: "threads", badge_label: "Viral Threads 2024", views: "15M",
+    platform: "threads", badge_label: "Viral Threads 2025", views: "15M",
     imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBukuWpWVaV-Fg_ejRu0VIwoSIlJertplNFpWal1mQsPHYQRv6CCfuEtlncY0K80V5k4hH0L_lo69WvOsZ8kgKpoi_LjNtIPL95zdXrRZz5b46y7y85eNq8I_ctC4hyeKrqjXc8mqZIZ0JEE5UR2WWNLZW_q2SzispGVPWWcaMHjzNA0k9HSQ0K6kPa9pqEAPW4UcAdeDBIaBpLXIkHCC2D3Z8sMiKhtxJTA_o6PXu-5SE89bZdRaeV",
-    category: "cafe", description: "Bar bãi biển đón hoàng hôn đẹp nhất đảo Phú Quốc"
+    category: "cafe", description: "Bar bãi biển đón hoàng hôn lãng mạn bậc nhất đảo ngọc Phú Quốc"
   },
   {
     id: "trend_6", name: "Bún bò Huế Mụ Rơi", city: "Huế",
     platform: "facebook", badge_label: "Facebook Top Food", views: "5.8M",
     imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuB3oNZCmp4-JPmESKgPuBuLcmKSjTMI8VbryYHZix_WsSuYBmRo9tYfwQGpAaOR2gnrd893pVcVnvTeoL1oocW2g4jv9p5E_ieqyJY4hUf7T7TEdf4OwxEMTDY6HOImRmzCbzYa0-gAki5vcKsIJaP8vE5fA2vvj-n_9Ezt55RAKmZUv0vK4P8oeMK49wEkILsvfb_GNjKg8OeRHJKVuWmF1whKRyMv4YarKDAG317h-tVNrcPLmXui",
-    category: "food", description: "Quán bún bò gia truyền 30 năm cay nồng chuẩn vị cố đô"
+    category: "food", description: "Quán bún bò gia truyền 30 năm cay nồng thơm mùi sả ruốc chuẩn vị cố đô"
   },
 ];
 
-// Read trending from db.json (key: trending_spots)
 function readTrending(): any[] {
   try {
     if (!fs.existsSync(DB_FILE)) return FALLBACK_TRENDING;
     const raw = fs.readFileSync(DB_FILE, "utf-8");
     const parsed = JSON.parse(raw || "{}");
-    if (Array.isArray(parsed)) return FALLBACK_TRENDING; // old array format
-    return parsed.trending_spots || FALLBACK_TRENDING;
+    if (Array.isArray(parsed)) return FALLBACK_TRENDING;
+    return parsed.trending_spots && parsed.trending_spots.length > 0 ? parsed.trending_spots : FALLBACK_TRENDING;
   } catch {
     return FALLBACK_TRENDING;
   }
 }
 
-// Write trending to db.json while preserving itineraries
 function writeTrending(spots: any[]) {
   try {
     let parsed: any = {};
@@ -325,7 +333,6 @@ function writeTrending(spots: any[]) {
       const raw = fs.readFileSync(DB_FILE, "utf-8");
       const tmp = JSON.parse(raw || "{}");
       if (Array.isArray(tmp)) {
-        // old format: itineraries was stored as root array, migrate
         parsed = { itineraries: tmp, trending_spots: spots };
       } else {
         parsed = { ...tmp, trending_spots: spots };
@@ -339,21 +346,109 @@ function writeTrending(spots: any[]) {
   }
 }
 
-// GET /api/trending-spots – trả về danh sách từ DB
 app.get("/api/trending-spots", (_req, res) => {
   res.json({ success: true, data: readTrending() });
 });
 
-// POST /api/trending-spots/refresh – dùng Gemini AI để sinh danh sách mới
+// ─── GOOGLE MAPS STYLE PLACES SEARCH API ──────────────────────────────────────
+
+// Fast search & filter endpoint
+app.get("/api/places/search", (req, res) => {
+  const { q = "", city = "", category = "" } = req.query;
+  const results = searchLocalPlaces(String(q), String(city), String(category));
+  res.json({ success: true, data: results });
+});
+
+// Rich Google Maps Places Search powered by database & Gemini intelligence
+app.post("/api/places/search", async (req, res) => {
+  try {
+    const { query = "", city = "", category = "" } = req.body;
+    const localResults = searchLocalPlaces(query, city, category);
+
+    // If we have strong local results or no API key, return them directly
+    const ai = getGeminiClient();
+    if (!ai || (!query && localResults.length > 0)) {
+      return res.json({ success: true, data: localResults, source: "database" });
+    }
+
+    // If query is provided, let Gemini enhance & discover real Google Maps places with exact location format
+    const prompt = `Bạn là công cụ tìm kiếm địa điểm thông minh Google Maps Places API tại Việt Nam.
+Tìm kiếm các địa điểm du lịch, quán ăn đặc sản, quán cà phê, khách sạn, hoặc điểm check-in phù hợp nhất theo yêu cầu sau:
+- Từ khóa tìm kiếm: "${query}"
+- Thành phố / Khu vực: "${city || "Việt Nam"}"
+- Thể loại: "${category || "tất cả"}"
+
+YÊU CẦU:
+1. Trả về từ 4 đến 8 địa điểm THỰC TẾ và CHÍNH XÁC tại Việt Nam.
+2. Cung cấp địa chỉ chi tiết, đánh giá sao thực tế (từ 4.3 đến 4.9), số lượt đánh giá, ước tính chi phí (VND), món nổi bật, giờ mở cửa.
+3. Trả về ĐÚNG định dạng JSON array sau (KHÔNG CÓ MARKDOWN):
+[
+  {
+    "id": "gmap_unique_id",
+    "name": "Tên địa điểm cụ thể",
+    "category": "food_specialty" | "cafe" | "attraction" | "accommodation" | "nightlife" | "shopping",
+    "category_label": "Nhãn loại (ví dụ: Quán Ăn Đặc Sản, Cà Phê Check-in, Điểm Tham Quan...)",
+    "category_icon": "restaurant" | "local_cafe" | "photo_camera" | "hotel" | "celebration" | "shopping_bag",
+    "address": "Số nhà, Tên đường, Quận/Huyện, Tỉnh/Thành phố",
+    "city": "${city || "Việt Nam"}",
+    "rating": 4.8,
+    "user_ratings_total": 1450,
+    "price_level_text": "35.000đ - 80.000đ",
+    "cost_vnd": 65000,
+    "opening_hours_text": "Đang mở cửa • 08:00 - 22:00",
+    "open_now": true,
+    "recommended_dish_or_activity": "Món ăn hoặc hoạt động trải nghiệm đặc trưng tại đây",
+    "photo_url": "https://lh3.googleusercontent.com/aida-public/AB6AXuAhVcPCWTtQeFF_dVK1usyPbZsOvPTp8_JOrchAvrWF39mD5hCChgph1LO2T5cBv3_OlJUctlTNuNjFrVrEWEr4zkwqCVsMNhweJ0EIqnljIAux32NjXXOhIrCL6m9WDY_3HzZ4ipc4nf7vTRtXWlKJSJQVqqMdFGj9kM9BeiPQgUM6PuJ5k7SutOZ-oz9b-ACQGRgD19xtQfVPpFcfb43bjs-q3QbI6V8edMmOpNtJC-cwqPghOSvX",
+    "social_trend": {
+      "is_viral": true,
+      "platform": "tiktok",
+      "badge_label": "Hot TikTok Check-in"
+    },
+    "google_maps_url": "https://www.google.com/maps/search/?api=1&query=Ten+Dia+Diem",
+    "quick_description": "Mô tả ngắn gọn đặc sắc 1 câu"
+  }
+]`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.7-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    });
+
+    let raw = response.text?.trim() || "[]";
+    if (raw.startsWith("```")) raw = raw.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
+
+    const aiPlaces: PlaceSearchResult[] = JSON.parse(raw);
+
+    // Merge: Put exact local matches first if any, then AI discovered places
+    const combined = [...localResults];
+    for (const ap of aiPlaces) {
+      if (!combined.some(c => c.name.toLowerCase() === ap.name.toLowerCase())) {
+        if (!ap.photo_url) {
+          ap.photo_url = "https://lh3.googleusercontent.com/aida-public/AB6AXuBamVqi82kE91WpwMhDWCKxiFFwKETksdgL7bKhJ2XKj28pGydUB5ccPL-rGDm3DMkbPLYUqGk_LjhV3UJxDghEwwbIsRtqUgyfxYaxf3FymP77oRXFUbyrjH1rGE3-rx8MuMy3m_J-22Ni_QkZ6ToEkcr6EudNLqAH_6KTGOfAXeUwgtCqnO9p_SWjZhdU3FMztLhK8kJYh5XEochW3kOplcjKV377oJvaGAeycn2h9o5XXCVEpKRf";
+        }
+        if (!ap.google_maps_url) {
+          ap.google_maps_url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ap.name + " " + (ap.address || ""))}`;
+        }
+        combined.push(ap);
+      }
+    }
+
+    return res.json({ success: true, data: combined, source: "gemini_google_places" });
+  } catch (err: any) {
+    console.error("Google Places Search API error:", err);
+    const local = searchLocalPlaces(req.body?.query, req.body?.city, req.body?.category);
+    return res.json({ success: true, data: local, source: "database_fallback" });
+  }
+});
+
 app.post("/api/trending-spots/refresh", async (_req, res) => {
   const ai = getGeminiClient();
   if (!ai) {
-    // No API key: return fallback
     writeTrending(FALLBACK_TRENDING);
     return res.json({ success: true, data: FALLBACK_TRENDING, source: "fallback" });
   }
   try {
-    const prompt = `Bạn là chuyên gia du lịch Việt Nam. Hãy tổng hợp 8 địa điểm du lịch Việt Nam đang được lan truyền mạnh nhất trên các nền tảng mạng xã hội TikTok, Threads, Instagram, Facebook trong tháng này.
+    const prompt = `Bạn là chuyên gia du lịch Việt Nam. Hãy tổng hợp 6 địa điểm du lịch Việt Nam đang được lan truyền mạnh nhất trên các nền tảng mạng xã hội TikTok, Threads, Facebook trong tháng này.
 
 Trả về JSON array với cấu trúc sau (KHÔNG có markdown, chỉ raw JSON):
 [
@@ -361,7 +456,7 @@ Trả về JSON array với cấu trúc sau (KHÔNG có markdown, chỉ raw JSON
     "id": "trend_X",
     "name": "Tên địa điểm/quán ăn cụ thể",
     "city": "Thành phố/tỉnh",
-    "platform": "tiktok" | "threads" | "instagram" | "facebook",
+    "platform": "tiktok" | "threads" | "facebook",
     "badge_label": "Mô tả trend ngắn gọn (ví dụ: 45M views TikTok)",
     "views": "Con số lượt xem dạng chuỗi (ví dụ: 45M)",
     "imageUrl": "",
@@ -369,15 +464,10 @@ Trả về JSON array với cấu trúc sau (KHÔNG có markdown, chỉ raw JSON
     "description": "Mô tả ngắn tại sao địa điểm này đang hot (1 câu)",
     "savedAt": "${new Date().toISOString()}"
   }
-]
-
-Lưu ý:
-- imageUrl để chuỗi rỗng "" (sẽ tự điền sau)
-- Đảm bảo đa dạng: miền Bắc, Trung, Nam; đa dạng loại hình (ẩm thực, cảnh đẹp, cafe, tự nhiên)
-- Địa điểm phải có tên cụ thể và thực tế`;
+]`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-3.7-flash",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
     });
 
@@ -400,7 +490,6 @@ app.post("/api/chat", async (req, res) => {
     const { message, conversationHistory } = req.body;
     const ai = getGeminiClient();
 
-    // System instruction for structured chat output
     const WANDER_CHAT_SYSTEM_INSTRUCTION = `Bạn là "WanderAI" - trợ lý du lịch AI thông minh tiếng Việt năng động, am hiểu sâu sắc về du lịch Việt Nam, các món ăn đặc sản vùng miền, điểm check-in HOT Threads/TikTok, gợi ý lịch trình tối ưu chi phí và quãng đường di chuyển.
 
 Bạn phải trả lời người dùng dưới dạng một đối tượng JSON có cấu trúc như sau:
@@ -409,12 +498,16 @@ Bạn phải trả lời người dùng dưới dạng một đối tượng JSO
   "itinerary": null hoặc Đối tượng lịch trình du lịch thông minh WanderAI (nếu người dùng yêu cầu tạo, lên kế hoạch, lập lịch trình, gợi ý lịch trình chi tiết cho một chuyến đi cụ thể).
 }
 
-Nếu người dùng KHÔNG yêu cầu lên lịch trình hoặc kế hoạch du lịch, hãy đặt trường "itinerary" là null.
-Nếu người dùng yêu cầu lên lịch trình, hãy tạo ra một lịch trình đầy đủ và lưu trữ nó trong trường "itinerary". Schema của đối tượng lịch trình phải trùng khớp 100% với cấu trúc WanderItineraryData:
-- meta: destination (tên địa điểm du lịch), trip_duration (ví dụ: 3N2Đ), total_estimated_cost_vnd (số tiền ước tính dạng số), currency_symbol ("đ"), theme_color ("#E2A854"), summary (tóm tắt chuyến đi bằng tiếng Việt).
+QUAN TRỌNG VỀ SỐ LƯỢNG NGÀY TRONG LỊCH TRÌNH:
+- Nếu người dùng yêu cầu chuyến đi 3N2Đ (3 ngày 2 đêm), 2N1Đ, 4N3Đ hoặc bất kỳ khoảng thời gian nào: Mảng "itinerary" PHẢI CÓ ĐỦ SỐ LƯỢNG NGÀY tương ứng (ví dụ: 3N2Đ thì mảng itinerary PHẢI CÓ ĐỦ 3 phần tử: day_number: 1, day_number: 2, day_number: 3).
+- Tuyệt đối KHÔNG ĐƯỢC chỉ trả về 1 ngày khi người dùng yêu cầu 3 ngày hoặc 3N2Đ.
+- Mỗi ngày trong lịch trình phải có 3-4 hoạt động phong phú trải dài từ sáng, trưa, chiều đến tối.
+
+Schema của đối tượng lịch trình:
+- meta: destination (tên địa điểm du lịch), trip_duration (ví dụ: "3N2Đ"), total_estimated_cost_vnd (số tiền ước tính dạng số), currency_symbol ("đ"), theme_color ("#E2A854"), summary (tóm tắt chuyến đi bằng tiếng Việt).
 - map_config: recommended_zoom (số), search_center_hint (tên địa danh làm trung tâm bản đồ).
 - itinerary: mảng các ngày du lịch, mỗi ngày gồm:
-  - day_number: số ngày (1, 2, ...)
+  - day_number: số ngày (1, 2, 3...)
   - day_title: tiêu đề ngày (ví dụ: "Ngày 1 - Check-in và ẩm thực phố cổ")
   - schedule: mảng các địa điểm/hoạt động trong ngày, mỗi địa điểm gồm:
     - id: chuỗi id duy nhất (ví dụ: "sug_1", "sug_2")
@@ -431,44 +524,37 @@ Nếu người dùng yêu cầu lên lịch trình, hãy tạo ra một lịch t
 - budget_breakdown: { food_and_drink_vnd: số, attractions_and_activities_vnd: số, transport_and_others_vnd: số }
 - local_insider_tips: mảng các mẹo địa phương { type: "transport" | "culture" | "warning" | "weather", icon: tên icon (ví dụ: "directions_bus", "warning"), content: nội dung mẹo }
 
-Mọi phản hồi phải là JSON thuần túy, không có markdown code block (không dùng \`\`\`json).`;
+Mọi phản hồi phải là JSON thuần túy, không có markdown code block.`;
+
+    // Extract destination and duration accurately using the central extraction helper
+    const msgLower = (message || "").toLowerCase();
+    const extracted = extractDestinationFromText(message || "");
+    const detectedCity = extracted.city;
+    const detectedDuration = extracted.duration;
+
+    const isItineraryRequest = msgLower.includes("lịch trình") || 
+                               msgLower.includes("kế hoạch") || 
+                               msgLower.includes("tạo") || 
+                               msgLower.includes("đi ") ||
+                               msgLower.includes("thiết kế") ||
+                               msgLower.includes("gợi ý") ||
+                               msgLower.includes("3n2đ") ||
+                               msgLower.includes("2n1đ") ||
+                               msgLower.includes("4n3đ") ||
+                               msgLower.includes("5n4đ");
 
     if (!ai) {
-      // Offline smart fallback
-      let detectedCity = "";
-      const msgLower = message.toLowerCase();
-      if (msgLower.includes("hà nội") || msgLower.includes("ha noi")) detectedCity = "Hà Nội";
-      else if (msgLower.includes("đà nẵng") || msgLower.includes("da nang")) detectedCity = "Đà Nẵng";
-      else if (msgLower.includes("phú quốc") || msgLower.includes("phu quoc")) detectedCity = "Phú Quốc";
-      else if (msgLower.includes("nha trang")) detectedCity = "Nha Trang";
-      else if (msgLower.includes("đà lạt") || msgLower.includes("da lat")) detectedCity = "Đà Lạt";
-      else if (msgLower.includes("vũng tàu") || msgLower.includes("vung tau")) detectedCity = "Vũng Tàu";
-      else if (msgLower.includes("sapa")) detectedCity = "Sapa";
-      else if (msgLower.includes("hội an") || msgLower.includes("hoi an")) detectedCity = "Hội An";
-
-      const isItineraryRequest = msgLower.includes("lịch trình") || 
-                                 msgLower.includes("kế hoạch") || 
-                                 msgLower.includes("tạo") || 
-                                 msgLower.includes("đi ") ||
-                                 msgLower.includes("thiết kế") ||
-                                 msgLower.includes("gợi ý");
-
-      if (isItineraryRequest && detectedCity) {
-        const fallbackItinerary = getSampleItinerary(detectedCity, "3N2Đ");
+      if (isItineraryRequest || detectedCity) {
+        const fallbackItinerary = getSampleItinerary(detectedCity, detectedDuration);
+        const dayCount = fallbackItinerary.itinerary.length;
         return res.json({
-          reply: `Xin chào! Tôi đã tự động lập lịch trình du lịch thông minh 3 ngày 2 đêm cho chuyến đi khám phá **${detectedCity}** của bạn. Hãy bấm nút dưới đây để xem và tự chỉnh sửa timeline nhé!`,
-          itinerary: fallbackItinerary
-        });
-      } else if (isItineraryRequest) {
-        const fallbackItinerary = getSampleItinerary("Đà Nẵng", "3N2Đ");
-        return res.json({
-          reply: `Tôi đã lập một lịch trình du lịch mẫu tại **Đà Nẵng** làm gợi ý cho bạn. Hãy bấm nút dưới để lưu và tùy chỉnh địa điểm theo ý muốn của mình!`,
+          reply: `Xin chào! Tôi đã lập lịch trình du lịch thông minh ${dayCount} ngày cho chuyến đi khám phá **${fallbackItinerary.meta.destination}** (${detectedDuration}) của bạn với đầy đủ các địa điểm ăn uống, check-in HOT và dự toán chi phí. Hãy bấm nút dưới đây để xem và tạo lịch trình nhé!`,
           itinerary: fallbackItinerary
         });
       }
 
       return res.json({
-        reply: `Chào bạn! Tôi là WanderAI. Để tạo lịch trình du lịch tự động, bạn có thể nhập câu lệnh như "Lên kế hoạch đi Đà Lạt" hoặc "Lập lịch trình Vũng Tàu". Hiện tại, bạn cũng có thể hỏi tôi thông tin về đặc sản hay điểm check-in HOT nhất!`,
+        reply: `Chào bạn! Tôi là WanderAI. Bạn có thể yêu cầu tôi lên kế hoạch chi tiết như "Lên lịch trình Vịnh Hạ Long 3N2Đ", "Thiết kế tour Đà Lạt 3N2Đ", hoặc "Lịch trình Ninh Bình 2N1Đ". Tôi sẽ lập đầy đủ các ngày trong lịch trình cùng mẹo ăn uống đặc sản địa phương!`,
         itinerary: null
       });
     }
@@ -491,7 +577,7 @@ Mọi phản hồi phải là JSON thuần túy, không có markdown code block 
     });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.7-flash",
       contents,
       config: {
         systemInstruction: WANDER_CHAT_SYSTEM_INSTRUCTION,
@@ -606,1083 +692,16 @@ Mọi phản hồi phải là JSON thuần túy, không có markdown code block 
     });
   } catch (err: any) {
     console.error("Chat Error:", err);
+    // Fallback gracefully to smart sample if user was asking for itinerary
+    const extracted = extractDestinationFromText(req.body?.message || "");
+    const fallback = getSampleItinerary(extracted.city, extracted.duration);
+    const dayCount = fallback.itinerary.length;
     return res.json({
-      reply: "Rất tiếc, có chút gián đoạn kết nối khi xử lý tin nhắn của bạn. Tuy nhiên bạn luôn có thể thử yêu cầu tạo lịch trình lại nhé!",
-      itinerary: null
+      reply: `Tôi đã lập lịch trình du lịch ${dayCount} ngày khám phá **${fallback.meta.destination}** (${extracted.duration}) cho bạn với các địa điểm nổi tiếng, đặc sản ẩm thực và các góc check-in HOT. Bạn có thể bấm nút bên dưới để tạo và tùy chỉnh lịch trình trong tab Lịch trình nhé!`,
+      itinerary: fallback
     });
   }
 });
-
-function getSampleItinerary(destination: string, duration: string) {
-  const destLower = destination.toLowerCase();
-  
-  // 1. PHÚ QUỐC
-  if (destLower.includes("phú quốc") || destLower.includes("phu quoc")) {
-    return {
-      meta: {
-        destination: "Phú Quốc",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 4500000,
-        currency_symbol: "đ",
-        theme_color: "#E2A854",
-        summary: "Hành trình nghỉ dưỡng đảo ngọc Phú Quốc, lặn ngắm san hô, check-in Sunset Sanato & thưởng thức bún quậy Kiến Xây."
-      },
-      map_config: {
-        recommended_zoom: 11,
-        search_center_hint: "Dương Đông, Phú Quốc"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Oanh tạc ẩm thực & Check-in Hoàng hôn Chợ đêm",
-          schedule: [
-            {
-              id: "pq_day1_1",
-              time_slot: "08:00 - 09:30",
-              time_period: "morning",
-              place_name: "Bún Quậy Kiến Xây",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "28 Bạch Đằng, Dương Đông, Phú Quốc",
-              recommended_dish_or_activity: "Bún quậy hải sản tôm mực tươi tự pha nước chấm",
-              cost_vnd: 65000,
-              social_trend: {
-                is_viral: true,
-                platform: "tiktok",
-                badge_label: "Hot TikTok 2.4M views",
-                sentiment_score: 0.96
-              },
-              ui_card: {
-                badge_color: "#E2A854",
-                quick_description: "Đặc sản trứ danh không thể bỏ lỡ"
-              }
-            },
-            {
-              id: "pq_day1_2",
-              time_slot: "10:00 - 12:00",
-              time_period: "morning",
-              place_name: "Dinh Cậu & Biển Dương Đông",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Khu phố 2, Dương Đông, Phú Quốc",
-              recommended_dish_or_activity: "Thắp hương ngắm sóng biển và chụp ảnh hải đăng",
-              cost_vnd: 0,
-              social_trend: {
-                is_viral: true,
-                platform: "facebook",
-                badge_label: "Điểm check-in truyền thống",
-                sentiment_score: 0.92
-              },
-              ui_card: {
-                badge_color: "#1B6D24",
-                quick_description: "Biểu tượng tâm linh ven biển"
-              }
-            },
-            {
-              id: "pq_day1_3",
-              time_slot: "16:30 - 18:30",
-              time_period: "afternoon",
-              place_name: "Sunset Sanato Beach Club",
-              category: "cafe",
-              category_icon: "local_cafe",
-              address_hint: "Bãi Trường, Dương Tơ, Phú Quốc",
-              recommended_dish_or_activity: "Ngắm hoàng hôn rực rỡ bên tượng voi chân dài bí ẩn",
-              cost_vnd: 100000,
-              social_trend: {
-                is_viral: true,
-                platform: "threads",
-                badge_label: "Trend Threads sống ảo",
-                sentiment_score: 0.98
-              },
-              ui_card: {
-                badge_color: "#E2A854",
-                quick_description: "Nơi ngắm hoàng hôn đẹp nhất đảo"
-              }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 1800000,
-        attractions_and_activities_vnd: 1700000,
-        transport_and_others_vnd: 1000000
-      },
-      local_insider_tips: [
-        {
-          type: "transport",
-          icon: "directions_bus",
-          content: "Thuê xe máy tại trung tâm Dương Đông khoảng 120k/ngày để chủ động di chuyển dọc Bãi Trường."
-        },
-        {
-          type: "warning",
-          icon: "warning",
-          content: "Tự pha nước chấm bún quậy theo công thức: 2 thìa muôi, 1 thìa tắc, 1/2 thìa ớt cay vừa ăn."
-        }
-      ]
-    };
-  }
-
-  // 1b. HUẾ
-  if (destLower.includes("huế") || destLower.includes("hue")) {
-    return {
-      meta: {
-        destination: "Huế",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 2600000,
-        currency_symbol: "đ",
-        theme_color: "#FF6B35",
-        summary: "Khám phá di sản cố đô Huế trầm mặc, tham quan Đại Nội cổ kính, lăng tẩm và thưởng thức ẩm thực cung đình đặc sắc."
-      },
-      map_config: {
-        recommended_zoom: 13,
-        search_center_hint: "Kinh thành Huế, Thừa Thiên Huế"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Tham quan Kinh Thành cổ & Thưởng thức ẩm thực Huế",
-          schedule: [
-            {
-              id: "hu_day1_1",
-              time_slot: "08:00 - 09:30",
-              time_period: "morning",
-              place_name: "Bún bò Huế Mụ Rơi",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "40 Nguyễn Chí Diểu, Thuận Thành, Huế",
-              recommended_dish_or_activity: "Thưởng thức tô bún bò giò heo chuẩn vị Huế cay nồng",
-              cost_vnd: 45000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Bún bò lâu đời cực HOT" },
-              ui_card: { badge_color: "#FF6B35", quick_description: "Hương vị Huế truyền thống" }
-            },
-            {
-              id: "hu_day1_2",
-              time_slot: "10:00 - 12:00",
-              time_period: "morning",
-              place_name: "Đại Nội Huế (Kinh Thành Huế)",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Phú Hậu, Thành phố Huế",
-              recommended_dish_or_activity: "Khám phá Ngọ Môn, Điện Thái Hòa, Thế Miếu và chụp hình cổ trang",
-              cost_vnd: 200000,
-              social_trend: { is_viral: true, platform: "facebook", badge_label: "Di sản văn hóa thế giới" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Quần thể kiến trúc lịch sử triều Nguyễn" }
-            },
-            {
-              id: "hu_day1_3",
-              time_slot: "16:00 - 18:00",
-              time_period: "afternoon",
-              place_name: "Tiệm Trà Cung Đình Vy Dạ Xưa",
-              category: "cafe",
-              category_icon: "local_cafe",
-              address_hint: "131 Nguyễn Sinh Cung, Vỹ Dạ, Huế",
-              recommended_dish_or_activity: "Nhâm nhi tách trà sen Cung Đình ngắm cảnh sông Hương êm đềm",
-              cost_vnd: 50000,
-              social_trend: { is_viral: true, platform: "threads", badge_label: "Trend chill sông Hương" },
-              ui_card: { badge_color: "#E2A854", quick_description: "Không gian trà đạo cổ xưa" }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 900000,
-        attractions_and_activities_vnd: 1000000,
-        transport_and_others_vnd: 700000
-      },
-      local_insider_tips: [
-        { type: "culture", icon: "explore", content: "Hãy mặc đồ lịch sự khi đi Đại Nội và lăng tẩm vì đây là nơi tôn nghiêm." },
-        { type: "transport", icon: "directions_bus", content: "Buổi tối nên trải nghiệm nghe ca Huế trên sông Hương và đi dạo cầu Trường Tiền." }
-      ]
-    };
-  }
-
-  // 1c. HẠ LONG
-  if (destLower.includes("hạ long") || destLower.includes("ha long") || destLower.includes("quảng ninh")) {
-    return {
-      meta: {
-        destination: "Hạ Long",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 3900000,
-        currency_symbol: "đ",
-        theme_color: "#FF6B35",
-        summary: "Hành trình vịnh Hạ Long kỳ vĩ, đi du thuyền ngắm đảo đá, khám phá hang động hoang sơ và thưởng thức bánh cuốn chả mực nóng hổi."
-      },
-      map_config: {
-        recommended_zoom: 12,
-        search_center_hint: "Bãi Cháy, Hạ Long"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Thưởng thức bánh cuốn chả mực & Du ngoạn Vịnh Hạ Long",
-          schedule: [
-            {
-              id: "hl_day1_1",
-              time_slot: "08:00 - 09:30",
-              time_period: "morning",
-              place_name: "Bánh cuốn chả mực Bà Ngân",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "34 Đoàn Thị Điểm, Bạch Đằng, Hạ Long",
-              recommended_dish_or_activity: "Thưởng thức bánh cuốn nóng tráng tay ăn kèm chả mực giã tay giòn ngọt",
-              cost_vnd: 50000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Hot TikTok đặc sản Hạ Long" },
-              ui_card: { badge_color: "#FF6B35", quick_description: "Món ăn sáng nổi danh nhất" }
-            },
-            {
-              id: "hl_day1_2",
-              time_slot: "10:00 - 16:30",
-              time_period: "afternoon",
-              place_name: "Du thuyền tham quan Vịnh Hạ Long",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Cảng tàu khách quốc tế Hạ Long, Bãi Cháy",
-              recommended_dish_or_activity: "Du ngoạn vịnh ngắm Hòn Trống Mái, khám phá Động Thiên Cung và chèo thuyền Kayak",
-              cost_vnd: 350000,
-              social_trend: { is_viral: true, platform: "facebook", badge_label: "Kỳ quan thiên nhiên thế giới" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Khám phá kỳ quan đá vôi nghìn năm" }
-            },
-            {
-              id: "hl_day1_3",
-              time_slot: "17:30 - 19:30",
-              time_period: "evening",
-              place_name: "Thông Reo Phin Bar Hạ Long",
-              category: "cafe",
-              category_icon: "local_cafe",
-              address_hint: "Đường Hải Quân, Bãi Cháy, Hạ Long",
-              recommended_dish_or_activity: "Uống cà phê muối ngắm cảnh hoàng hôn buông xuống vịnh tuyệt đẹp",
-              cost_vnd: 70000,
-              social_trend: { is_viral: true, platform: "threads", badge_label: "Góc ngắm hoàng hôn cực chill" },
-              ui_card: { badge_color: "#E2A854", quick_description: "Không gian thông reo thơ mộng" }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 1200000,
-        attractions_and_activities_vnd: 1500000,
-        transport_and_others_vnd: 1200000
-      },
-      local_insider_tips: [
-        { type: "transport", icon: "directions_bus", content: "Hãy chọn xe điện đi quanh khu Bãi Cháy chỉ khoảng 20k/lượt rất thoáng mát." },
-        { type: "warning", icon: "warning", content: "Luôn mua vé tàu tham quan vịnh tại cảng tàu chính thức để tránh cò mồi giá cao." }
-      ]
-    };
-  }
-
-  // 1d. NINH BÌNH
-  if (destLower.includes("ninh bình") || destLower.includes("ninh binh")) {
-    return {
-      meta: {
-        destination: "Ninh Bình",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 2400000,
-        currency_symbol: "đ",
-        theme_color: "#E2A854",
-        summary: "Du ngoạn non nước Ninh Bình, đi thuyền ngắm hang động Tràng An, check-in Hang Múa kỳ vĩ & thưởng thức đặc sản dê núi cơm cháy."
-      },
-      map_config: {
-        recommended_zoom: 12,
-        search_center_hint: "Tràng An, Ninh Bình"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Danh thắng Tràng An & Chinh phục Hang Múa",
-          schedule: [
-            {
-              id: "nb_day1_1",
-              time_slot: "08:00 - 09:30",
-              time_period: "morning",
-              place_name: "Miến lươn bà Phấn",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "Trần Hưng Đạo, Ninh Bình",
-              recommended_dish_or_activity: "Thưởng thức miến lươn nước dùng đậm đà đặc sản",
-              cost_vnd: 45000,
-              social_trend: { is_viral: true, platform: "facebook", badge_label: "Quán ăn gia truyền" },
-              ui_card: { badge_color: "#FF6B35", quick_description: "Đặc sản nức tiếng cố đô" }
-            },
-            {
-              id: "nb_day1_2",
-              time_slot: "10:00 - 13:30",
-              time_period: "morning",
-              place_name: "Khu du lịch sinh thái Tràng An",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Tràng An, Trường Yên, Ninh Bình",
-              recommended_dish_or_activity: "Đi đò chèo ngắm cảnh hang động karst, chùa cổ, phim trường cũ",
-              cost_vnd: 250000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Hot TikTok phong cảnh hữu tình" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Di sản thế giới kép UNESCO" }
-            },
-            {
-              id: "nb_day1_3",
-              time_slot: "14:30 - 16:30",
-              time_period: "afternoon",
-              place_name: "Khu thắng cảnh Hang Múa",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Khê Đầu Hạ, Ninh Xuân, Ninh Bình",
-              recommended_dish_or_activity: "Leo 486 bậc đá lên đỉnh núi Ngọa Long ngắm toàn cảnh lúa chín Tam Cốc",
-              cost_vnd: 100000,
-              social_trend: { is_viral: true, platform: "threads", badge_label: "Đỉnh núi check-in ngắm cảnh siêu đẹp" },
-              ui_card: { badge_color: "#E2A854", quick_description: "Vạn lý trường thành thu nhỏ" }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 800000,
-        attractions_and_activities_vnd: 900000,
-        transport_and_others_vnd: 700000
-      },
-      local_insider_tips: [
-        { type: "transport", icon: "directions_bus", content: "Hãy đi thuyền Tràng An tuyến 2 hoặc tuyến 3 để có sự kết hợp đền thờ và hang động đẹp nhất." },
-        { type: "warning", icon: "warning", content: "Chuẩn bị nón, kem chống nắng và nước lọc vì thời gian ngồi thuyền trên sông khoảng 3 tiếng." }
-      ]
-    };
-  }
-
-  // 1e. QUY NHƠN
-  if (destLower.includes("quy nhơn") || destLower.includes("quy nhon")) {
-    return {
-      meta: {
-        destination: "Quy Nhơn",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 2800000,
-        currency_symbol: "đ",
-        theme_color: "#FF6B35",
-        summary: "Khám phá thiên đường biển Quy Nhơn, lướt sóng Kỳ Co, đón gió Eo Gió kỳ vĩ & oanh tạc bánh xèo tôm nhảy."
-      },
-      map_config: {
-        recommended_zoom: 12,
-        search_center_hint: "Trần Phú, Quy Nhơn"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Oanh tạc Eo Gió, Kỳ Co & Bánh xèo tôm nhảy",
-          schedule: [
-            {
-              id: "qn_day1_1",
-              time_slot: "08:00 - 09:30",
-              time_period: "morning",
-              place_name: "Bánh xèo tôm nhảy Gia Vĩ",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "19 Diên Hồng, Quy Nhơn",
-              recommended_dish_or_activity: "Bánh xèo giòn rụm nhân tôm đất tươi rói cuốn rau mầm",
-              cost_vnd: 50000,
-              social_trend: { is_viral: true, platform: "facebook", badge_label: "Đặc sản Quy Nhơn" },
-              ui_card: { badge_color: "#FF6B35", quick_description: "Đặc sản số một Bình Định" }
-            },
-            {
-              id: "qn_day1_2",
-              time_slot: "10:00 - 14:00",
-              time_period: "morning",
-              place_name: "Khu du lịch Kỳ Co",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Nhơn Lý, Quy Nhơn",
-              recommended_dish_or_activity: "Tắm biển xanh ngọc bích, chụp ảnh cầu gỗ và lặn ngắm san hô bãi Dứa",
-              cost_vnd: 150000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Maldives thu nhỏ tại Việt Nam" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Bãi biển đẹp hoang sơ bậc nhất" }
-            },
-            {
-              id: "qn_day1_3",
-              time_slot: "15:00 - 17:00",
-              time_period: "afternoon",
-              place_name: "Khu thắng cảnh Eo Gió",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Nhơn Lý, Quy Nhơn",
-              recommended_dish_or_activity: "Đi bộ dọc con đường tay vịn đỏ ven vách đá ngắm sóng biển xô bồ",
-              cost_vnd: 25000,
-              social_trend: { is_viral: true, platform: "threads", badge_label: "Nơi đón bình minh & hoàng hôn đẹp nhất" },
-              ui_card: { badge_color: "#E2A854", quick_description: "Thung lũng đón gió biển" }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 1000000,
-        attractions_and_activities_vnd: 1000000,
-        transport_and_others_vnd: 800000
-      },
-      local_insider_tips: [
-        { type: "transport", icon: "directions_bus", content: "Hãy đi ca nô từ Nhơn Lý sang Kỳ Co để tiết kiệm thời gian và có cơ hội ngắm rặng san hô tuyệt đẹp." },
-        { type: "weather", icon: "wb_sunny", content: "Thời điểm lý tưởng nhất đi Quy Nhơn là từ tháng 3 đến tháng 9 khi biển lặng, trong xanh." }
-      ]
-    };
-  }
-
-  // 1f. PHAN THIẾT / MŨI NÉ
-  if (destLower.includes("phan thiết") || destLower.includes("phan thiet") || destLower.includes("mũi né") || destLower.includes("mui ne")) {
-    return {
-      meta: {
-        destination: "Mũi Né",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 2900000,
-        currency_symbol: "đ",
-        theme_color: "#FF6B35",
-        summary: "Check-in sa mạc cát Bàu Trắng Mũi Né, trượt cát Đồi Cát Bay, thưởng thức hải sản tươi sống và lướt sóng biển xanh."
-      },
-      map_config: {
-        recommended_zoom: 12,
-        search_center_hint: "Bãi Cháy Mũi Né, Bình Thuận"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Trải nghiệm xe Jeep Bàu Trắng & Đồi Cát Bay",
-          schedule: [
-            {
-              id: "mn_day1_1",
-              time_slot: "08:30 - 09:30",
-              time_period: "morning",
-              place_name: "Bánh canh chả cá Phan Thiết - Xíu mại",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "Trần Hưng Đạo, Phan Thiết",
-              recommended_dish_or_activity: "Thưởng thức bánh canh chả cá hấp hoặc chiên ngọt vị cá thu",
-              cost_vnd: 35000,
-              social_trend: { is_viral: true, platform: "facebook", badge_label: "Ẩm thực truyền thống Phan Thiết" },
-              ui_card: { badge_color: "#FF6B35", quick_description: "Vị ngọt thanh đượm vị biển" }
-            },
-            {
-              id: "mn_day1_2",
-              time_slot: "14:00 - 16:30",
-              time_period: "afternoon",
-              place_name: "Đồi Cát Trắng (Bàu Trắng)",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Hòa Thắng, Bắc Bình, Bình Thuận",
-              recommended_dish_or_activity: "Thuê xe jeep địa hình chạy lên đỉnh đồi cát, trượt cát ngắm hồ sen",
-              cost_vnd: 300000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Tiểu Sahara Việt Nam" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Đồi cát trắng tinh mộng mơ" }
-            },
-            {
-              id: "mn_day1_3",
-              time_slot: "17:00 - 18:30",
-              time_period: "evening",
-              place_name: "Đồi Cát Bay Mũi Né",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Vòng xoay Mũi Né, Phan Thiết",
-              recommended_dish_or_activity: "Ngắm hoàng hôn nhuộm đỏ đồi cát vàng óng ả",
-              cost_vnd: 0,
-              social_trend: { is_viral: true, platform: "threads", badge_label: "Trend Threads hoàng hôn đồi cát" },
-              ui_card: { badge_color: "#E2A854", quick_description: "Điểm chụp ảnh bóng hoàng hôn" }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 1100000,
-        attractions_and_activities_vnd: 1000000,
-        transport_and_others_vnd: 800000
-      },
-      local_insider_tips: [
-        { type: "transport", icon: "directions_bus", content: "Nên thuê tour xe Jeep đi 4 điểm (Bàu Trắng, Đồi Cát Đỏ, Làng Chài, Suối Tiên) khoảng 500k/xe 4-6 người." },
-        { type: "warning", icon: "warning", content: "Nắng ở đồi cát rất gắt, hãy mang kính râm, thoa kem chống nắng kỹ trước khi đi." }
-      ]
-    };
-  }
-
-  // 1g. CẦN THƠ
-  if (destLower.includes("cần thơ") || destLower.includes("can tho")) {
-    return {
-      meta: {
-        destination: "Cần Thơ",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 2200000,
-        currency_symbol: "đ",
-        theme_color: "#E2A854",
-        summary: "Trải nghiệm văn hóa sông nước miền Tây độc đáo tại Cần Thơ, đi đò Chợ nổi Cái Răng từ sáng sớm và tham quan vườn trái cây."
-      },
-      map_config: {
-        recommended_zoom: 12,
-        search_center_hint: "Ninh Kiều, Cần Thơ"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Khám phá Chợ nổi Cái Răng & Vườn trái cây Mỹ Khánh",
-          schedule: [
-            {
-              id: "ct_day1_1",
-              time_slot: "05:30 - 07:30",
-              time_period: "morning",
-              place_name: "Chợ nổi Cái Răng",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Sông Cần Thơ, Cái Răng",
-              recommended_dish_or_activity: "Đi thuyền ngắm cảnh mua bán nhộn nhịp, ăn hủ tiếu chợ nổi nóng hổi trên ghe",
-              cost_vnd: 100000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Hot TikTok văn hóa miền Tây" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Biểu tượng sông nước Tây Đô" }
-            },
-            {
-              id: "ct_day1_2",
-              time_slot: "08:00 - 09:30",
-              time_period: "morning",
-              place_name: "Hủ tiếu Pizza Chợ Nổi",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "Lộ Vòng Cung, An Bình, Ninh Kiều",
-              recommended_dish_or_activity: "Thử hủ tiếu chiên giòn rụm độc đáo kèm thịt khìa trứng chiên",
-              cost_vnd: 40000,
-              social_trend: { is_viral: true, platform: "facebook", badge_label: "Món ăn sáng độc đáo" },
-              ui_card: { badge_color: "#FF6B35", quick_description: "Đặc sản chế biến độc lạ" }
-            },
-            {
-              id: "ct_day1_3",
-              time_slot: "10:00 - 14:00",
-              time_period: "afternoon",
-              place_name: "Làng du lịch sinh thái Mỹ Khánh",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "335 Lộ Vòng Cung, Mỹ Khánh, Phong Điền",
-              recommended_dish_or_activity: "Tham quan vườn cây trĩu quả chôm chôm, măng cụt, dâu Hạ Châu và chơi các trò chơi dân gian",
-              cost_vnd: 90000,
-              social_trend: { is_viral: true, platform: "facebook", badge_label: "Khu du lịch sinh thái miệt vườn" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Miệt vườn trái cây Nam Bộ" }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 800000,
-        attractions_and_activities_vnd: 700000,
-        transport_and_others_vnd: 700000
-      },
-      local_insider_tips: [
-        { type: "transport", icon: "directions_bus", content: "Hãy ra bến Ninh Kiều từ 5h00 sáng để thuê thuyền đò đi chợ nổi thời điểm đẹp nhất." },
-        { type: "culture", icon: "explore", content: "Người dân miền Tây vô cùng hiếu khách và thật thà, bạn có thể thoải mái giao tiếp trò chuyện." }
-      ]
-    };
-  }
-
-  // 1h. CÔN ĐẢO
-  if (destLower.includes("côn đảo") || destLower.includes("con dao") || destLower.includes("côn sơn")) {
-    return {
-      meta: {
-        destination: "Côn Đảo",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 4800000,
-        currency_symbol: "đ",
-        theme_color: "#FF6B35",
-        summary: "Hành trình tâm linh thiêng liêng tại Côn Đảo, thăm nhà tù lịch sử, viếng mộ chị Sáu và nghỉ dưỡng bãi biển Đầm Trầu hoang sơ."
-      },
-      map_config: {
-        recommended_zoom: 12,
-        search_center_hint: "Côn Sơn, Bà Rịa Vũng Tàu"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Thăm Nhà tù Lịch sử & Bãi biển Đầm Trầu ngắm máy bay",
-          schedule: [
-            {
-              id: "cd_day1_1",
-              time_slot: "08:30 - 11:30",
-              time_period: "morning",
-              place_name: "Hệ thống nhà tù Côn Đảo",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Lê Văn Việt, Côn Đảo",
-              recommended_dish_or_activity: "Viếng thăm Trại Phú Hải, Chuồng Cọp Pháp - Mỹ tìm hiểu lịch sử anh hùng cách mạng",
-              cost_vnd: 50000,
-              social_trend: { is_viral: false, platform: "none", badge_label: "Di tích lịch sử quốc gia" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Địa ngục trần gian một thời" }
-            },
-            {
-              id: "cd_day1_2",
-              time_slot: "12:00 - 13:00",
-              time_period: "morning",
-              place_name: "Bún riêu cua biển Côn Đảo",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "Đường Nguyễn Huệ, Côn Đảo",
-              recommended_dish_or_activity: "Thưởng thức bún riêu cua biển ngọt béo bùi chuẩn vị đảo",
-              cost_vnd: 50000,
-              social_trend: { is_viral: true, platform: "facebook", badge_label: "Ẩm thực biển đảo ngon bổ" },
-              ui_card: { badge_color: "#FF6B35", quick_description: "Ăn trưa cua biển đậm đà" }
-            },
-            {
-              id: "cd_day1_3",
-              time_slot: "14:30 - 17:00",
-              time_period: "afternoon",
-              place_name: "Bãi biển Đầm Trầu",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Gần sân bay Cỏ Ống, Côn Đảo",
-              recommended_dish_or_activity: "Tắm biển bãi cát mịn, chờ đón khoảnh khắc máy bay đáp sát đầu để check-in sống ảo",
-              cost_vnd: 0,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Check-in máy bay HOT nhất Việt Nam" },
-              ui_card: { badge_color: "#E2A854", quick_description: "Bãi biển có trải nghiệm có một không hai" }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 1500000,
-        attractions_and_activities_vnd: 1300000,
-        transport_and_others_vnd: 2000000
-      },
-      local_insider_tips: [
-        { type: "culture", icon: "explore", content: "Viếng mộ chị Võ Thị Sáu tại nghĩa trang Hàng Dương thường diễn ra trang nghiêm từ 22h00 - 24h00 đêm." },
-        { type: "transport", icon: "directions_bus", content: "Nên thuê xe máy đi quanh đảo vì các bãi tắm cách nhau khoảng 10-15km và ít taxi." }
-      ]
-    };
-  }
-
-  // 2. NHA TRANG
-  if (destLower.includes("nha trang")) {
-    return {
-      meta: {
-        destination: "Nha Trang",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 3500000,
-        currency_symbol: "đ",
-        theme_color: "#FF6B35",
-        summary: "Hành trình biển xanh Nha Trang, khám phá VinWonders, di tích Tháp Bà Ponagar và đặc sản ẩm thực biển."
-      },
-      map_config: {
-        recommended_zoom: 12,
-        search_center_hint: "Lộc Thọ, Nha Trang"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Check-in Biển Bãi Dài & Vui chơi VinWonders",
-          schedule: [
-            {
-              id: "nt_day1_1",
-              time_slot: "08:00 - 09:30",
-              time_period: "morning",
-              place_name: "Bánh căn hải sản Nha Trang - Tháp Bà",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "Khu Tháp Bà, Nha Trang",
-              recommended_dish_or_activity: "Thưởng thức bánh căn nóng hổi nhân tôm mực tươi",
-              cost_vnd: 55000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Hot TikTok 1.8M views" },
-              ui_card: { badge_color: "#FF6B35", quick_description: "Đặc sản sáng không thể bỏ qua" }
-            },
-            {
-              id: "nt_day1_2",
-              time_slot: "10:00 - 16:30",
-              time_period: "afternoon",
-              place_name: "Khu vui chơi VinWonders Nha Trang",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Đảo Hòn Tre, Vĩnh Nguyên, Nha Trang",
-              recommended_dish_or_activity: "Vui chơi công viên nước, ngắm show diễn triệu đô Tata Show",
-              cost_vnd: 880000,
-              social_trend: { is_viral: true, platform: "facebook", badge_label: "Hot check-in Hòn Tre" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Đảo giải trí đẳng cấp thế giới" }
-            },
-            {
-              id: "nt_day1_3",
-              time_slot: "17:00 - 19:00",
-              time_period: "evening",
-              place_name: "Sailing Club Nha Trang",
-              category: "cafe",
-              category_icon: "local_cafe",
-              address_hint: "72 Trần Phú, Lộc Thọ, Nha Trang",
-              recommended_dish_or_activity: "Ngắm hoàng hôn ven biển với ly cocktail hoặc cafe muối",
-              cost_vnd: 120000,
-              social_trend: { is_viral: true, platform: "threads", badge_label: "Bar bãi biển HOT nhất" },
-              ui_card: { badge_color: "#E2A854", quick_description: "Nơi ngắm biển chiều cực chill" }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 1200000,
-        attractions_and_activities_vnd: 1500000,
-        transport_and_others_vnd: 800000
-      },
-      local_insider_tips: [
-        { type: "transport", icon: "directions_bus", content: "Hãy chọn di chuyển bằng xe điện dọc đường Trần Phú để ngắm cảnh biển tiết kiệm." },
-        { type: "culture", icon: "explore", content: "Khi tham quan Tháp Bà Ponagar, nên mặc trang phục lịch sự che vai và đầu gối." }
-      ]
-    };
-  }
-
-  // 3. ĐÀ LẠT
-  if (destLower.includes("đà lạt") || destLower.includes("da lat")) {
-    return {
-      meta: {
-        destination: "Đà Lạt",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 2900000,
-        currency_symbol: "đ",
-        theme_color: "#FF6B35",
-        summary: "Hành trình săn mây Đà Lạt, chill tiệm cafe view đồi núi rừng thông & thưởng thức Lẩu gà lá é ấm áp."
-      },
-      map_config: {
-        recommended_zoom: 12,
-        search_center_hint: "Phường 1, Đà Lạt"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Săn mây Đồi chè & Chill rừng thông",
-          schedule: [
-            {
-              id: "dl_day1_1",
-              time_slot: "04:30 - 07:30",
-              time_period: "morning",
-              place_name: "Săn Mây Đồi Chè Cầu Đất",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Xuân Trường, Đà Lạt",
-              recommended_dish_or_activity: "Chụp ảnh thảm gỗ săn mây bồng bềnh buổi sớm",
-              cost_vnd: 120000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Top 1 sống ảo Đà Lạt" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Trải nghiệm săn mây đỉnh cao" }
-            },
-            {
-              id: "dl_day1_2",
-              time_slot: "08:30 - 10:00",
-              time_period: "morning",
-              place_name: "Bánh mì xíu mại Hoàng Diệu",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "26 Hoàng Diệu, Phường 5, Đà Lạt",
-              recommended_dish_or_activity: "Chén bánh mì xíu mại cay nồng ấm bụng",
-              cost_vnd: 35000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Hot TikTok Review" },
-              ui_card: { badge_color: "#FF6B35", quick_description: "Bữa sáng trứ danh Đà Lạt" }
-            },
-            {
-              id: "dl_day1_3",
-              time_slot: "14:00 - 17:00",
-              time_period: "afternoon",
-              place_name: "Tiệm Cà phê Túi Mơ To",
-              category: "cafe",
-              category_icon: "local_cafe",
-              address_hint: "Hẻm 31 Sào Nam, Phường 11, Đà Lạt",
-              recommended_dish_or_activity: "Thưởng thức trà nóng giữa vườn cúc họa mi lãng mạn",
-              cost_vnd: 65000,
-              social_trend: { is_viral: true, platform: "threads", badge_label: "Trend Threads check-in" },
-              ui_card: { badge_color: "#E2A854", quick_description: "View thung lũng đèn cực đẹp" }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 900000,
-        attractions_and_activities_vnd: 1200000,
-        transport_and_others_vnd: 800000
-      },
-      local_insider_tips: [
-        { type: "weather", icon: "cloud", content: "Đà Lạt chiều tối lạnh sâu, hãy luôn mang theo áo khoác ấm khi ra ngoài." },
-        { type: "transport", icon: "motorcycle", content: "Đường Đà Lạt nhiều đèo dốc và không có đèn đỏ, lái xe máy cần hết sức cẩn thận." }
-      ]
-    };
-  }
-
-  // 4. VŨNG TÀU
-  if (destLower.includes("vũng tàu") || destLower.includes("vung tau")) {
-    return {
-      meta: {
-        destination: "Vũng Tàu",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 2500000,
-        currency_symbol: "đ",
-        theme_color: "#FF6B35",
-        summary: "Chuyến đi tránh nóng Vũng Tàu cực nhanh, oanh tạc bánh khọt, check-in ngọn hải đăng & hít thở gió biển."
-      },
-      map_config: {
-        recommended_zoom: 12,
-        search_center_hint: "Bãi Sau, Vũng Tàu"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Oanh tạc Bánh Khọt & Check-in Hải Đăng",
-          schedule: [
-            {
-              id: "vt_day1_1",
-              time_slot: "08:30 - 10:00",
-              time_period: "morning",
-              place_name: "Bánh khọt Cô Ba Vũng Tàu",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "01 Hoàng Hoa Thám, Phường 3, Vũng Tàu",
-              recommended_dish_or_activity: "Bánh khọt tôm nhảy giòn rụm cuốn rau cải chấm nước mắm chua ngọt",
-              cost_vnd: 75000,
-              social_trend: { is_viral: true, platform: "facebook", badge_label: "Quán bánh khọt lâu đời" },
-              ui_card: { badge_color: "#FF6B35", quick_description: "Đặc sản số 1 Vũng Tàu" }
-            },
-            {
-              id: "vt_day1_2",
-              time_slot: "14:30 - 16:30",
-              time_period: "afternoon",
-              place_name: "Ngọn Hải Đăng Vũng Tàu",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Núi Nhỏ, Phường 2, Vũng Tàu",
-              recommended_dish_or_activity: "Ngắm toàn cảnh biển bãi Trước và ăn sữa chua cô Tiên",
-              cost_vnd: 20000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Check-in ngắm biển view đỉnh" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Ngọn hải đăng cổ nhất Việt Nam" }
-            },
-            {
-              id: "vt_day1_3",
-              time_slot: "17:00 - 19:00",
-              time_period: "evening",
-              place_name: "Marina Club Vũng Tàu",
-              category: "cafe",
-              category_icon: "local_cafe",
-              address_hint: "03 Hạ Long, Phường 2, Vũng Tàu",
-              recommended_dish_or_activity: "Uống nước hóng gió biển rì rào ngắm hoàng hôn rực sắc đỏ",
-              cost_vnd: 90000,
-              social_trend: { is_viral: true, platform: "threads", badge_label: "Trend Threads hoàng hôn" },
-              ui_card: { badge_color: "#E2A854", quick_description: "Tọa độ ngắm hoàng hôn sát biển" }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 1000000,
-        attractions_and_activities_vnd: 700000,
-        transport_and_others_vnd: 800000
-      },
-      local_insider_tips: [
-        { type: "transport", icon: "directions_car", content: "Chỉ cách Sài Gòn 2 tiếng đi xe khách hoặc tàu cao tốc, rất thích hợp du lịch cuối tuần." },
-        { type: "warning", icon: "warning", content: "Hãy hỏi kỹ giá hải sản trước khi mua tại các chợ đêm ven biển để tránh bị chặt chém." }
-      ]
-    };
-  }
-
-  // 5. HÀ NỘI
-  if (destLower.includes("hà nội") || destLower.includes("ha noi")) {
-    return {
-      meta: {
-        destination: "Hà Nội",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 2700000,
-        currency_symbol: "đ",
-        theme_color: "#FF6B35",
-        summary: "Du lịch thủ đô Hà Nội ngàn năm văn hiến, dạo hồ Gươm, thưởng thức cà phê trứng & bia Tạ Hiện sôi động."
-      },
-      map_config: {
-        recommended_zoom: 13,
-        search_center_hint: "Hoàn Kiếm, Hà Nội"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Hoài niệm Hồ Gươm, Lăng Bác & Thưởng thức Phở",
-          schedule: [
-            {
-              id: "hn_day1_1",
-              time_slot: "07:30 - 09:00",
-              time_period: "morning",
-              place_name: "Phở Bò Bát Đàn",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "49 Bát Đàn, Cửa Đông, Hoàn Kiếm",
-              recommended_dish_or_activity: "Xếp hàng ăn phở bò gia truyền nước dùng ngọt thanh",
-              cost_vnd: 60000,
-              social_trend: { is_viral: true, platform: "facebook", badge_label: "Phở gia truyền xếp hàng" },
-              ui_card: { badge_color: "#FF6B35", quick_description: "Tinh hoa ẩm thực Hà Thành" }
-            },
-            {
-              id: "hn_day1_2",
-              time_slot: "09:30 - 11:30",
-              time_period: "morning",
-              place_name: "Lăng Chủ tịch Hồ Chí Minh",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Hùng Vương, Điện Biên, Ba Đình",
-              recommended_dish_or_activity: "Vào lăng viếng Bác và dạo quanh khu nhà sàn, ao cá",
-              cost_vnd: 0,
-              social_trend: { is_viral: false, platform: "none", badge_label: "Điểm tham quan lịch sử" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Trái tim thiêng liêng đất nước" }
-            },
-            {
-              id: "hn_day1_3",
-              time_slot: "14:30 - 16:00",
-              time_period: "afternoon",
-              place_name: "Cà phê Giảng - Cà phê Trứng",
-              category: "cafe",
-              category_icon: "local_cafe",
-              address_hint: "39 Nguyễn Hữu Huân, Lý Thái Tổ, Hoàn Kiếm",
-              recommended_dish_or_activity: "Thưởng thức cà phê trứng nóng ngậy béo thơm",
-              cost_vnd: 40000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Hot TikTok ẩm thực thủ đô" },
-              ui_card: { badge_color: "#E2A854", quick_description: "Khai sinh ra món Cà phê trứng" }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 1100000,
-        attractions_and_activities_vnd: 800000,
-        transport_and_others_vnd: 800000
-      },
-      local_insider_tips: [
-        { type: "culture", icon: "explore", content: "Hãy thử trải nghiệm đi xe xích lô quanh khu phố cổ để tận hưởng không khí cổ xưa." },
-        { type: "weather", icon: "wb_sunny", content: "Hà Nội mùa thu (tháng 9-11) là thời điểm đẹp nhất năm với nắng vàng gió heo may." }
-      ]
-    };
-  }
-
-  // 6. SAPA
-  if (destLower.includes("sapa")) {
-    return {
-      meta: {
-        destination: "Sapa",
-        trip_duration: duration || "3N2Đ",
-        total_estimated_cost_vnd: 3200000,
-        currency_symbol: "đ",
-        theme_color: "#FF6B35",
-        summary: "Hành trình chinh phục Fansipan huyền thoại, dạo chơi bản Cát Cát mộc mạc và ăn đồ nướng ngói Sapa thơm phức."
-      },
-      map_config: {
-        recommended_zoom: 12,
-        search_center_hint: "Sa Pa, Lào Cai"
-      },
-      itinerary: [
-        {
-          day_number: 1,
-          day_title: "Chinh phục đỉnh Fansipan & Bản Cát Cát",
-          schedule: [
-            {
-              id: "sp_day1_1",
-              time_slot: "08:00 - 12:00",
-              time_period: "morning",
-              place_name: "Cáp treo Fansipan Legend",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "Đường Nguyễn Chí Thanh, Sa Pa",
-              recommended_dish_or_activity: "Đi cáp treo leo núi ngắm thung lũng Mường Hoa, chụp ảnh cột mốc 3143m",
-              cost_vnd: 850000,
-              social_trend: { is_viral: true, platform: "facebook", badge_label: "Nóc nhà Đông Dương" },
-              ui_card: { badge_color: "#1B6D24", quick_description: "Đỉnh núi cao nhất Việt Nam" }
-            },
-            {
-              id: "sp_day1_2",
-              time_slot: "14:00 - 16:30",
-              time_period: "afternoon",
-              place_name: "Bản Cát Cát - Bản H'Mông cổ",
-              category: "attraction",
-              category_icon: "photo_camera",
-              address_hint: "San Sả Hồ, Sa Pa",
-              recommended_dish_or_activity: "Thuê trang phục dân tộc check-in thác nước, nhà gỗ",
-              cost_vnd: 150000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Hot TikTok check-in vùng cao" },
-              ui_card: { badge_color: "#FF6B35", quick_description: "Ngôi làng đẹp nhất Tây Bắc" }
-            },
-            {
-              id: "sp_day1_3",
-              time_slot: "18:30 - 21:00",
-              time_period: "evening",
-              place_name: "Ẩm thực nướng ngói Sapa",
-              category: "food_specialty",
-              category_icon: "restaurant",
-              address_hint: "Phố Cầu Mây, Sa Pa",
-              recommended_dish_or_activity: "Thưởng thức thịt heo bản, bò cuộn cải mèo nướng ngói nóng hổi",
-              cost_vnd: 200000,
-              social_trend: { is_viral: true, platform: "tiktok", badge_label: "Ăn vặt đêm Sapa cực đắt khách" },
-              ui_card: { badge_color: "#E2A854", quick_description: "Món ăn sưởi ấm đêm sương mù" }
-            }
-          ]
-        }
-      ],
-      budget_breakdown: {
-        food_and_drink_vnd: 1000000,
-        attractions_and_activities_vnd: 1400000,
-        transport_and_others_vnd: 800000
-      },
-      local_insider_tips: [
-        { type: "transport", icon: "directions_bus", content: "Hãy đi tàu hỏa leo núi Mường Hoa từ ga Sapa để có view thung lũng tuyệt đẹp." },
-        { type: "warning", icon: "warning", content: "Sapa quanh năm có sương mù dầy, chú ý mang giày chống trơn trượt khi leo núi." }
-      ]
-    };
-  }
-
-  // 7. ĐÀ NẴNG (Default / Fallback)
-  const capitalizedDestination = destination.charAt(0).toUpperCase() + destination.slice(1);
-  return {
-    meta: {
-      destination: capitalizedDestination || "Đà Nẵng",
-      trip_duration: duration || "3N2Đ",
-      total_estimated_cost_vnd: 2800000,
-      currency_symbol: "đ",
-      theme_color: "#E2A854",
-      summary: `Khám phá thiên đường du lịch và ẩm thực tại ${capitalizedDestination}. Lịch trình kết hợp đặc sản địa phương và những điểm sống ảo độc đáo.`
-    },
-    map_config: {
-      recommended_zoom: 12,
-      search_center_hint: `${capitalizedDestination}, Việt Nam`
-    },
-    itinerary: [
-      {
-        day_number: 1,
-        day_title: "Oanh tạc ẩm thực đặc sắc & Địa điểm check-in tiêu biểu",
-        schedule: [
-          {
-            id: "fallback_item1",
-            time_slot: "08:00 - 09:30",
-            time_period: "morning",
-            place_name: `Bữa sáng ẩm thực đặc sản ${capitalizedDestination}`,
-            category: "food_specialty",
-            category_icon: "restaurant",
-            address_hint: `Trung tâm thành phố ${capitalizedDestination}`,
-            recommended_dish_or_activity: "Thưởng thức món ăn truyền thống được thực khách đánh giá cao",
-            cost_vnd: 65000,
-            social_trend: { is_viral: true, platform: "tiktok", badge_label: "Quán địa phương nổi bật" },
-            ui_card: { badge_color: "#E2A854", quick_description: "Vị ngon chuẩn địa phương" }
-          },
-          {
-            id: "fallback_item2",
-            time_slot: "10:00 - 12:00",
-            time_period: "morning",
-            place_name: `Điểm danh lam thắng cảnh ${capitalizedDestination}`,
-            category: "attraction",
-            category_icon: "photo_camera",
-            address_hint: `Thành phố ${capitalizedDestination}`,
-            recommended_dish_or_activity: "Chụp ảnh lưu niệm toàn cảnh, trải nghiệm không khí thiên nhiên trong lành",
-            cost_vnd: 0,
-            social_trend: { is_viral: true, platform: "facebook", badge_label: "Tuyệt tác tự nhiên" },
-            ui_card: { badge_color: "#1B6D24", quick_description: "Không gian thoáng đãng & check-in" }
-          },
-          {
-            id: "fallback_item3",
-            time_slot: "14:00 - 16:30",
-            time_period: "afternoon",
-            place_name: `Tiệm Cà phê chill ngắm cảnh`,
-            category: "cafe",
-            category_icon: "local_cafe",
-            address_hint: `Khu trung tâm ${capitalizedDestination}`,
-            recommended_dish_or_activity: "Nhâm nhi ly nước đặc trưng, ngắm nhìn phố phường chuyển động",
-            cost_vnd: 50000,
-            social_trend: { is_viral: true, platform: "threads", badge_label: "Tọa độ sống ảo cực xịn" },
-            ui_card: { badge_color: "#E2A854", quick_description: "View xinh thư giãn" }
-          }
-        ]
-      }
-    ],
-    budget_breakdown: {
-      food_and_drink_vnd: 1100000,
-      attractions_and_activities_vnd: 1000000,
-      transport_and_others_vnd: 700000
-    },
-    local_insider_tips: [
-      { type: "transport", icon: "directions_bus", content: "Hãy thuê xe máy (khoảng 100k - 150k/ngày) để tự do di chuyển chủ động nhất." },
-      { type: "weather", icon: "wb_sunny", content: "Hãy chuẩn bị ô dù và kem chống nắng để check-in ngoài trời thoải mái." }
-    ]
-  };
-}
 
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

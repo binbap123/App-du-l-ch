@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { WanderItineraryData, ScheduleItem } from "../types";
 import { MOCK_TRAY_SUGGESTIONS } from "../data/mockData";
+import { PlaceSearchModal } from "./PlaceSearchModal";
 
 interface ItineraryBuilderViewProps {
   itineraryData: WanderItineraryData;
@@ -16,14 +17,19 @@ export const ItineraryBuilderView: React.FC<ItineraryBuilderViewProps> = ({
   const [data, setData] = useState<WanderItineraryData>(itineraryData);
   const [activeDayIndex, setActiveDayIndex] = useState(0);
   const [isTrayOpen, setIsTrayOpen] = useState(false);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const activeDay = data.itinerary[activeDayIndex] || data.itinerary[0];
+  const activeDay = data.itinerary[activeDayIndex] || data.itinerary[0] || {
+    day_number: 1,
+    day_title: "Ngày 1",
+    schedule: []
+  };
 
   // Calculate day total cost
-  const totalCostDay = activeDay.schedule.reduce((acc, item) => acc + item.cost_vnd, 0);
+  const totalCostDay = (activeDay.schedule || []).reduce((acc, item) => acc + (item.cost_vnd || 0), 0);
   const totalTripCost = data.itinerary.reduce((acc, day) => {
-    return acc + day.schedule.reduce((sAcc, item) => sAcc + item.cost_vnd, 0);
+    return acc + (day.schedule || []).reduce((sAcc, item) => sAcc + (item.cost_vnd || 0), 0);
   }, 0);
 
   const totalBudgetMax = data.meta.total_estimated_cost_vnd || 3000000;
@@ -59,37 +65,18 @@ export const ItineraryBuilderView: React.FC<ItineraryBuilderViewProps> = ({
     setData({ ...data, itinerary: updatedDays });
   };
 
-  const handleAddCustomPlace = () => {
-    const newItem: ScheduleItem = {
-      id: `custom_${Date.now()}`,
-      time_slot: "15:00 PM",
-      time_period: "afternoon",
-      place_name: "Chè Liên - Đặc sản Đà Nẵng",
-      category: "food_specialty",
-      category_icon: "restaurant",
-      address_hint: "189 Hoàng Diệu, Hải Châu",
-      recommended_dish_or_activity: "Thưởng thức Chè Thái Sầu Riêng chuẩn vị",
-      cost_vnd: 35000,
-      social_trend: {
-        is_viral: true,
-        platform: "tiktok",
-        badge_label: "Hot TikTok",
-      },
-      ui_card: {
-        badge_color: "#FF6B35",
-        quick_description: "Chè Sầu trứ danh",
-      },
-      image_url:
-        "https://lh3.googleusercontent.com/aida-public/AB6AXuAJv_fxHPny19r9Mz6x1FSxf87vdPfHL8tAlxINmlvsa070RslOYxqb7IjZfd8fnGfcyhiEK6lVgkENmXi3VQT3WRvgsccRVOSOCTcWJXlXtWfXVn_08oQeRLNtSCpi2kLXMOLxjUfYffsUmlCdbilVTegtm-OUpFi_ttXlWfp8qNZe8BO7d3DmozKnLShYh7QuVuuXQXzMIOIQWpIilXEmZZExyzhrxmcYojs9jldg6gntsuhlr088",
-    };
-
+  // Callback when user selects a place from Google Maps Search Modal
+  const handleAddPlaceFromSearch = (targetDayIdx: number, newItem: ScheduleItem) => {
     const updatedDays = [...data.itinerary];
-    updatedDays[activeDayIndex] = {
-      ...activeDay,
-      schedule: [...activeDay.schedule, newItem],
-    };
-    setData({ ...data, itinerary: updatedDays });
-    showToast("Đã thêm địa điểm tự chọn vào Ngày " + (activeDayIndex + 1));
+    if (updatedDays[targetDayIdx]) {
+      updatedDays[targetDayIdx] = {
+        ...updatedDays[targetDayIdx],
+        schedule: [...(updatedDays[targetDayIdx].schedule || []), newItem],
+      };
+      setData({ ...data, itinerary: updatedDays });
+      setActiveDayIndex(targetDayIdx);
+      showToast(`Đã thêm "${newItem.place_name}" vào Ngày ${targetDayIdx + 1}!`);
+    }
   };
 
   const handleAddSuggestion = (sug: typeof MOCK_TRAY_SUGGESTIONS[0]) => {
@@ -230,6 +217,20 @@ export const ItineraryBuilderView: React.FC<ItineraryBuilderViewProps> = ({
 
       {/* Main Timeline Canvas */}
       <main className="px-[20px] py-6 max-w-2xl mx-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-[15px] font-extrabold text-[#111827] flex items-center gap-1.5">
+            <span className="material-symbols-outlined text-[#1A73E8] text-[20px]">map</span>
+            {activeDay.day_title || `Ngày ${activeDayIndex + 1}`}
+          </h2>
+          <button
+            onClick={() => setIsSearchModalOpen(true)}
+            className="text-[12px] font-bold text-[#1A73E8] hover:text-[#1557B0] bg-[#E8F0FE] hover:bg-[#D2E3FC] px-3 py-1.5 rounded-full flex items-center gap-1 transition-all border border-[#D2E3FC]"
+          >
+            <span className="material-symbols-outlined text-[16px]">search</span>
+            Tìm & Thêm địa điểm
+          </button>
+        </div>
+
         <div className="relative pl-6">
           {/* Dashed Timeline Line */}
           <div className="absolute left-6 top-6 bottom-6 w-0.5 dashed-line -ml-[1px]"></div>
@@ -257,15 +258,19 @@ export const ItineraryBuilderView: React.FC<ItineraryBuilderViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => showToast("Đã đổi thời gian hoạt động")}
-                        className="text-[#6B7280] hover:text-[#FF6B35] h-7 w-7 flex items-center justify-center rounded-full hover:bg-[#FFF7ED]"
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.place_name + " " + (item.address_hint || data.meta.destination))}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#1A73E8] hover:bg-[#E8F0FE] h-7 w-7 flex items-center justify-center rounded-full transition-colors"
+                        title="Mở trên Google Maps"
                       >
-                        <span className="material-symbols-outlined text-[16px]">cached</span>
-                      </button>
+                        <span className="material-symbols-outlined text-[16px]">pin_drop</span>
+                      </a>
                       <button
                         onClick={() => handleDeleteItem(item.id)}
                         className="text-[#EF4444] hover:bg-[#FEE2E2] h-7 w-7 flex items-center justify-center rounded-full transition-colors"
+                        title="Xóa địa điểm"
                       >
                         <span className="material-symbols-outlined text-[16px]">delete</span>
                       </button>
@@ -283,11 +288,21 @@ export const ItineraryBuilderView: React.FC<ItineraryBuilderViewProps> = ({
                       </div>
                     )}
                     <div className="flex-1">
-                      <h3 className="text-[15px] font-bold text-[#111827] line-clamp-2 mb-1">
+                      <h3 className="text-[15px] font-bold text-[#111827] line-clamp-2 mb-0.5">
                         {item.place_name}
                       </h3>
+                      {item.address_hint && (
+                        <p className="text-[11px] text-[#6B7280] line-clamp-1 mb-1">
+                          📍 {item.address_hint}
+                        </p>
+                      )}
+                      {item.recommended_dish_or_activity && (
+                        <p className="text-[11px] text-[#D97706] font-medium line-clamp-1">
+                          ✨ {item.recommended_dish_or_activity}
+                        </p>
+                      )}
                       {item.social_trend?.badge_label && (
-                        <span className="text-[11px] font-extrabold bg-[#DCFCE7] text-[#15803D] px-2 py-0.5 rounded-md border border-[#BBF7D0] inline-flex items-center">
+                        <span className="text-[10px] font-extrabold bg-[#DCFCE7] text-[#15803D] px-2 py-0.5 rounded-md border border-[#BBF7D0] inline-flex items-center mt-1">
                           {item.social_trend.badge_label}
                         </span>
                       )}
@@ -298,7 +313,7 @@ export const ItineraryBuilderView: React.FC<ItineraryBuilderViewProps> = ({
                     <span className="text-[#6B7280] font-medium">Dự kiến:</span>
                     <input
                       type="text"
-                      value={`${item.cost_vnd.toLocaleString("vi-VN")} đ`}
+                      value={`${(item.cost_vnd || 0).toLocaleString("vi-VN")} đ`}
                       onChange={(e) => handleUpdateItemCost(item.id, e.target.value)}
                       className="bg-white font-bold text-[#111827] border border-[#E5E7EB] rounded-lg px-2.5 py-1 w-28 focus:border-[#FF6B35] outline-none"
                     />
@@ -309,10 +324,15 @@ export const ItineraryBuilderView: React.FC<ItineraryBuilderViewProps> = ({
               {/* Route Connector Bar */}
               {idx < activeDay.schedule.length - 1 && (
                 <div className="mt-3 -ml-6 pl-10 flex items-center gap-2 text-[#6B7280]">
-                  <div className="bg-white px-3 py-1 rounded-full border border-[#E5E7EB] flex items-center gap-1.5 text-[12px] font-medium hover:border-[#FF6B35] cursor-pointer shadow-sm">
-                    <span className="material-symbols-outlined text-[15px] text-[#FF6B35]">directions_car</span>
-                    <span>12 phút (3.5 km) - Bấm xem tuyến</span>
-                  </div>
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(item.place_name + " " + data.meta.destination)}&destination=${encodeURIComponent(activeDay.schedule[idx + 1].place_name + " " + data.meta.destination)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bg-white px-3 py-1 rounded-full border border-[#E5E7EB] flex items-center gap-1.5 text-[12px] font-medium hover:border-[#1A73E8] hover:text-[#1A73E8] cursor-pointer shadow-sm transition-all"
+                  >
+                    <span className="material-symbols-outlined text-[15px] text-[#1A73E8]">directions_car</span>
+                    <span>Chỉ đường Google Maps • Xem lộ trình</span>
+                  </a>
                 </div>
               )}
             </div>
@@ -324,16 +344,18 @@ export const ItineraryBuilderView: React.FC<ItineraryBuilderViewProps> = ({
       <div className="fixed bottom-0 w-full z-30 bg-gradient-to-t from-[#F0F2F5] via-[#F0F2F5] to-transparent pb-safe pt-4 px-[20px]">
         <div className="max-w-2xl mx-auto space-y-2.5 pb-4">
           <button
-            onClick={handleAddCustomPlace}
-            className="w-full bg-white border-2 border-[#FF6B35] text-[#FF6B35] font-extrabold text-[14px] py-3 rounded-xl shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-transform hover:bg-[#FFF7ED]"
+            onClick={() => setIsSearchModalOpen(true)}
+            className="w-full bg-white border-2 border-[#1A73E8] text-[#1A73E8] font-extrabold text-[14px] py-3 rounded-2xl shadow-md flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-[#E8F0FE]"
           >
-            <span className="material-symbols-outlined text-[20px]">add_location_alt</span>
-            Thêm Địa Điểm Tự Chọn
+            <span className="material-symbols-outlined text-[20px] text-[#EA4335]">
+              pin_drop
+            </span>
+            <span>Tìm & Thêm Địa Điểm Tự Chọn</span>
           </button>
 
           <button
             onClick={() => setIsTrayOpen(!isTrayOpen)}
-            className="w-full sleek-gradient-bg text-white font-extrabold text-[14px] py-3.5 rounded-xl shadow-[0_4px_16px_rgba(255,107,53,0.3)] flex items-center justify-center gap-2 active:scale-95 transition-transform hover:opacity-95"
+            className="w-full sleek-gradient-bg text-white font-extrabold text-[14px] py-3.5 rounded-2xl shadow-[0_4px_16px_rgba(255,107,53,0.3)] flex items-center justify-center gap-2 active:scale-95 transition-transform hover:opacity-95"
           >
             <span
               className="material-symbols-outlined text-[20px]"
@@ -345,6 +367,16 @@ export const ItineraryBuilderView: React.FC<ItineraryBuilderViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Google Maps Places Search & Selection Modal */}
+      <PlaceSearchModal
+        isOpen={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+        onSelectAndAdd={handleAddPlaceFromSearch}
+        destinationCity={data.meta.destination}
+        days={data.itinerary}
+        activeDayIndex={activeDayIndex}
+      />
 
       {/* AI Suggestions Drawer Tray */}
       {isTrayOpen && (

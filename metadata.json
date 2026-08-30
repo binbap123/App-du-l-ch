@@ -1,6 +1,0 @@
-{
-  "name": "WanderAI",
-  "description": "Chuyên gia trí tuệ du lịch - Lập lịch trình du lịch thông minh, đặc sản địa phương và địa điểm HOT TikTok, Threads",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
