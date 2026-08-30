@@ -9,7 +9,13 @@ import { searchLocalPlaces, VERIFIED_VIETNAM_PLACES, PlaceSearchResult } from ".
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
+const __filename = (() => {
+  try {
+    return fileURLToPath(import.meta.url);
+  } catch {
+    return path.join(process.cwd(), "server.ts");
+  }
+})();
 const __dirname = path.dirname(__filename);
 
 const app = express();
@@ -359,85 +365,214 @@ app.get("/api/places/search", (req, res) => {
   res.json({ success: true, data: results });
 });
 
-// Rich Google Maps Places Search powered by database & Gemini intelligence
+const SERPAPI_API_KEY = process.env.SERPAPI_API_KEY;
+
+const GMAPS_FALLBACK_IMG = "https://lh3.googleusercontent.com/aida-public/AB6AXuBamVqi82kE91WpwMhDWCKxiFFwKETksdgL7bKhJ2XKj28pGydUB5ccPL-rGDm3DMkbPLYUqGk_LjhV3UJxDghEwwbIsRtqUgyfxYaxf3FymP77oRXFUbyrjH1rGE3-rx8MuMy3m_J-22Ni_QkZ6ToEkcr6EudNLqAH_6KTGOfAXeUwgtCqnO9p_SWjZhdU3FMztLhK8kJYh5XEochW3kOplcjKV377oJvaGAeycn2h9o5XXCVEpKRf";
+const GMAPS_ICON = "https://www.gstatic.com/images/branding/product/1x/places_16dp.png";
+
+function serpCategory(types: string[]): { category: PlaceSearchResult["category"], label: string, icon: string } {
+  const t = types || [];
+  if (t.some(x => /restaurant|food|meal_takeaway|bakery|caf[eé]|coffee/i.test(x))) {
+    if (t.some(x => /caf[eé]|coffee/i.test(x))) {
+      return { category: "cafe", label: "Cà Phê & Check-in", icon: "local_cafe" };
+    }
+    return { category: "food_specialty", label: "Quán Ăn Đặc Sản", icon: "restaurant" };
+  }
+  if (t.some(x => /hotel|lodging|inn|resort|hostel/i.test(x))) {
+    return { category: "accommodation", label: "Khách Sạn / Homestay", icon: "hotel" };
+  }
+  if (t.some(x => /night_club|bar|club/i.test(x))) {
+    return { category: "nightlife", label: "Vui Chơi & Nightlife", icon: "celebration" };
+  }
+  if (t.some(x => /market|mall|store|shopping/i.test(x))) {
+    return { category: "shopping", label: "Mua Sắm & Chợ", icon: "shopping_bag" };
+  }
+  return { category: "attraction", label: "Điểm Tham Quan & Check-in", icon: "photo_camera" };
+}
+
+function categoryQuery(token: string): string {
+  const map: Record<string, string> = {
+    food: " quán ăn đặc sản nhà hàng",
+    cafe: " quán cà phê check-in",
+    attraction: " điểm tham quan du lịch",
+    shopping: " chợ trung tâm mua sắm",
+    accommodation: " khách sạn homestay",
+    nightlife: " quán bar club giải trí đêm",
+    trending: " điểm du lịch nổi tiếng hot",
+  };
+  return map[token] || "";
+}
+
+const SERPAPI_SEARCH_URL = "https://serpapi.com/search.json";
+
+// SerpApi Google Maps search — REAL Google Maps place data (score from Google itself)
+async function searchSerpMaps(query: string, city: string, category: string): Promise<PlaceSearchResult[]> {
+  let textQuery = query.trim();
+  if (city && city !== "all" && city !== "tất cả") {
+    textQuery = textQuery ? `${textQuery} ${city}` : city;
+  }
+  if (category) {
+    textQuery = textQuery + categoryQuery(category);
+  }
+  if (!textQuery) {
+    textQuery = "địa điểm du lịch nổi tiếng Việt Nam";
+  }
+
+  const params = new URLSearchParams({
+    engine: "google_maps",
+    q: textQuery,
+    type: "search",
+    ll: cityToLatLng(city),
+    hl: "vi",
+    gl: "vn",
+    google_domain: "google.com.vn",
+    api_key: SERPAPI_API_KEY || "",
+    num: "10",
+  });
+
+  const res = await fetch(`${SERPAPI_SEARCH_URL}?${params.toString()}`);
+  if (!res.ok) {
+    throw new Error(`SerpApi HTTP ${res.status}`);
+  }
+  const data = await res.json();
+
+  if (data.error) {
+    throw new Error(data.error);
+  }
+
+  const raw: any[] = Array.isArray(data.local_results) ? data.local_results : [];
+  const cityName = (city || "").split("-")[0].trim();
+
+  return raw.map((p: any, i: number): PlaceSearchResult => {
+    const types: string[] = Array.isArray(p.types) ? p.types : [p.type || ""];
+    const cat = serpCategory(types);
+    const gps = p.gps_coordinates || {};
+    return {
+      id: p.data_id || `serp_${Date.now()}_${i}`,
+      name: p.title || "Không rõ tên",
+      category: cat.category,
+      category_label: cat.label || p.type || "Địa điểm",
+      category_icon: cat.icon,
+      address: p.address || "",
+      city: cityName || p.address?.split(",").pop()?.trim() || "Việt Nam",
+      rating: p.rating ?? 0,
+      user_ratings_total: p.reviews ?? 0,
+      price_level_text: p.price || "Tùy theo lựa chọn",
+      cost_vnd: typeof p.price === "string" ? estimateCostFromPrice(p.price) : 60000,
+      opening_hours_text: p.open_state?.replace("Open", "Đang mở") || "",
+      open_now: typeof p.open_state === "string" ? p.open_state.toLowerCase().includes("open") : undefined,
+      recommended_dish_or_activity: p.description || "Khám phá và trải nghiệm tại đây",
+      photo_url: p.thumbnail || GMAPS_ICON,
+      social_trend: {
+        is_viral: false,
+        platform: "none",
+        badge_label: "Google Maps — dữ liệu thực",
+      },
+      google_maps_url: p.place_link || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.title || "")}`,
+      lat: gps.latitude,
+      lng: gps.longitude,
+      quick_description: p.description || cat.label,
+    };
+  });
+}
+
+function estimateCostFromPrice(price: string): number {
+  const n = parseInt(price.replace(/[^\d]/g, ""), 10);
+  if (!isNaN(n)) return n;
+  return 60000;
+}
+
+function cityToLatLng(city: string): string {
+  const map: Record<string, string> = {
+    "Đà Nẵng": "16.0544,108.2022",
+    "Hội An": "15.8799,108.3350",
+    "Phú Quốc": "10.2899,103.9840",
+    "Đà Lạt": "11.9404,108.4583",
+    "Hà Nội": "21.0285,105.8542",
+    "TP. Hồ Chí Minh": "10.8231,106.6297",
+    "Hồ Chí Minh": "10.8231,106.6297",
+    "Nha Trang": "12.2388,109.1967",
+    "Sapa": "22.3364,103.8440",
+    "Sa Pa": "22.3364,103.8440",
+    "Huế": "16.4637,107.5909",
+    "Quy Nhơn": "13.7700,109.2190",
+    "Ninh Bình": "20.2506,105.9743",
+    "Vịnh Hạ Long": "20.9101,107.1839",
+    "Hạ Long": "20.9101,107.1839",
+  };
+  return map[city] || map[city.split("-")[0].trim()] || "16.0544,108.2022";
+}
+
+// SerpApi Google Maps search — REAL Google Maps place data with lat/lng & photos
 app.post("/api/places/search", async (req, res) => {
   try {
     const { query = "", city = "", category = "" } = req.body;
     const localResults = searchLocalPlaces(query, city, category);
 
-    // If we have strong local results or no API key, return them directly
-    const ai = getGeminiClient();
-    if (!ai || (!query && localResults.length > 0)) {
+    // No API key -> fallback to built-in local database only
+    if (!SERPAPI_API_KEY) {
       return res.json({ success: true, data: localResults, source: "database" });
     }
 
-    // If query is provided, let Gemini enhance & discover real Google Maps places with exact location format
-    const prompt = `Bạn là công cụ tìm kiếm địa điểm thông minh Google Maps Places API tại Việt Nam.
-Tìm kiếm các địa điểm du lịch, quán ăn đặc sản, quán cà phê, khách sạn, hoặc điểm check-in phù hợp nhất theo yêu cầu sau:
-- Từ khóa tìm kiếm: "${query}"
-- Thành phố / Khu vực: "${city || "Việt Nam"}"
-- Thể loại: "${category || "tất cả"}"
+    const mapped = await searchSerpMaps(query, city, category);
 
-YÊU CẦU:
-1. Trả về từ 4 đến 8 địa điểm THỰC TẾ và CHÍNH XÁC tại Việt Nam.
-2. Cung cấp địa chỉ chi tiết, đánh giá sao thực tế (từ 4.3 đến 4.9), số lượt đánh giá, ước tính chi phí (VND), món nổi bật, giờ mở cửa.
-3. Trả về ĐÚNG định dạng JSON array sau (KHÔNG CÓ MARKDOWN):
-[
-  {
-    "id": "gmap_unique_id",
-    "name": "Tên địa điểm cụ thể",
-    "category": "food_specialty" | "cafe" | "attraction" | "accommodation" | "nightlife" | "shopping",
-    "category_label": "Nhãn loại (ví dụ: Quán Ăn Đặc Sản, Cà Phê Check-in, Điểm Tham Quan...)",
-    "category_icon": "restaurant" | "local_cafe" | "photo_camera" | "hotel" | "celebration" | "shopping_bag",
-    "address": "Số nhà, Tên đường, Quận/Huyện, Tỉnh/Thành phố",
-    "city": "${city || "Việt Nam"}",
-    "rating": 4.8,
-    "user_ratings_total": 1450,
-    "price_level_text": "35.000đ - 80.000đ",
-    "cost_vnd": 65000,
-    "opening_hours_text": "Đang mở cửa • 08:00 - 22:00",
-    "open_now": true,
-    "recommended_dish_or_activity": "Món ăn hoặc hoạt động trải nghiệm đặc trưng tại đây",
-    "photo_url": "https://lh3.googleusercontent.com/aida-public/AB6AXuAhVcPCWTtQeFF_dVK1usyPbZsOvPTp8_JOrchAvrWF39mD5hCChgph1LO2T5cBv3_OlJUctlTNuNjFrVrEWEr4zkwqCVsMNhweJ0EIqnljIAux32NjXXOhIrCL6m9WDY_3HzZ4ipc4nf7vTRtXWlKJSJQVqqMdFGj9kM9BeiPQgUM6PuJ5k7SutOZ-oz9b-ACQGRgD19xtQfVPpFcfb43bjs-q3QbI6V8edMmOpNtJC-cwqPghOSvX",
-    "social_trend": {
-      "is_viral": true,
-      "platform": "tiktok",
-      "badge_label": "Hot TikTok Check-in"
-    },
-    "google_maps_url": "https://www.google.com/maps/search/?api=1&query=Ten+Dia+Diem",
-    "quick_description": "Mô tả ngắn gọn đặc sắc 1 câu"
-  }
-]`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-    });
-
-    let raw = response.text?.trim() || "[]";
-    if (raw.startsWith("```")) raw = raw.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
-
-    const aiPlaces: PlaceSearchResult[] = JSON.parse(raw);
-
-    // Merge: Put exact local matches first if any, then AI discovered places
-    const combined = [...localResults];
-    for (const ap of aiPlaces) {
-      if (!combined.some(c => c.name.toLowerCase() === ap.name.toLowerCase())) {
-        if (!ap.photo_url) {
-          ap.photo_url = "https://lh3.googleusercontent.com/aida-public/AB6AXuBamVqi82kE91WpwMhDWCKxiFFwKETksdgL7bKhJ2XKj28pGydUB5ccPL-rGDm3DMkbPLYUqGk_LjhV3UJxDghEwwbIsRtqUgyfxYaxf3FymP77oRXFUbyrjH1rGE3-rx8MuMy3m_J-22Ni_QkZ6ToEkcr6EudNLqAH_6KTGOfAXeUwgtCqnO9p_SWjZhdU3FMztLhK8kJYh5XEochW3kOplcjKV377oJvaGAeycn2h9o5XXCVEpKRf";
-        }
-        if (!ap.google_maps_url) {
-          ap.google_maps_url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ap.name + " " + (ap.address || ""))}`;
-        }
-        combined.push(ap);
+    // Merge: local verified places first (dedupe by name), then real Google Maps results
+    const combined: PlaceSearchResult[] = [...localResults];
+    for (const gp of mapped) {
+      if (!combined.some(c => c.name.toLowerCase() === gp.name.toLowerCase())) {
+        combined.push(gp);
       }
     }
 
-    return res.json({ success: true, data: combined, source: "gemini_google_places" });
+    return res.json({ success: true, data: combined, source: "serpapi_google_maps" });
   } catch (err: any) {
-    console.error("Google Places Search API error:", err);
+    console.error("SerpApi Google Maps Search error:", err);
     const local = searchLocalPlaces(req.body?.query, req.body?.city, req.body?.category);
     return res.json({ success: true, data: local, source: "database_fallback" });
+  }
+});
+
+// SerpApi Google Maps Autocomplete — live dropdown suggestions like Google Maps
+app.get("/api/places/autocomplete", async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    const city = String(req.query.city || "").trim();
+    if (!SERPAPI_API_KEY) {
+      return res.json({ success: true, data: [] });
+    }
+    if (q.length < 2) {
+      return res.json({ success: true, data: [] });
+    }
+
+    let query = q;
+    if (city && city !== "all" && city !== "tất cả") {
+      query = `${q} ${city}`;
+    }
+
+    const params = new URLSearchParams({
+      engine: "google_maps_autocomplete",
+      q: query,
+      api_key: SERPAPI_API_KEY,
+    });
+
+    const result = await fetch(`${SERPAPI_SEARCH_URL}?${params.toString()}`);
+    if (!result.ok) throw new Error(`SerpApi autocomplete HTTP ${result.status}`);
+    const data = await result.json();
+    if (data.error) throw new Error(data.error);
+
+    const suggestions = (data.suggestions || []).map((s: any) => ({
+      id: s.data_id || `ac_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      description: s.value || s.title || "",
+      placeName: s.title || s.value || "",
+      address: s.address || "",
+      lat: s.gps_coordinates?.latitude,
+      lng: s.gps_coordinates?.longitude,
+    }));
+
+    return res.json({ success: true, data: suggestions });
+  } catch (err: any) {
+    console.error("SerpApi autocomplete error:", err);
+    return res.json({ success: true, data: [], error: err.message });
   }
 });
 

@@ -25,6 +25,8 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [results, setResults] = useState<PlaceSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Selected place for step 2 configuration
   const [selectedPlace, setSelectedPlace] = useState<PlaceSearchResult | null>(null);
@@ -43,6 +45,7 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
   const [manualNotes, setManualNotes] = useState("");
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Synchronize target day when activeDayIndex prop changes
   useEffect(() => {
@@ -98,6 +101,34 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
     const val = e.target.value;
     setSearchQuery(val);
     handleSearch(val, selectedCity, selectedCategory);
+
+    // Live autocomplete suggestions like Google Maps
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (val.trim().length >= 2) {
+      debounceRef.current = setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/places/autocomplete?q=${encodeURIComponent(val)}&city=${encodeURIComponent(selectedCity)}`);
+          const data = await res.json();
+          if (data.success) {
+            setSuggestions(data.data || []);
+            setShowSuggestions(true);
+          }
+        } catch (err) {
+          console.error("Lỗi autocomplete:", err);
+        }
+      }, 300);
+    } else {
+      setShowSuggestions(false);
+      setSuggestions([]);
+    }
+  };
+
+  // Pick a Google Maps style suggestion
+  const handlePickSuggestion = (sug: any) => {
+    setSearchQuery(sug.placeName || sug.description);
+    setShowSuggestions(false);
+    setSuggestions([]);
+    handleSearch(sug.placeName || sug.description, selectedCity, selectedCategory);
   };
 
   // When user clicks a place from the search results
@@ -289,6 +320,36 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
                   </button>
                 )}
               </div>
+
+              {/* Google Maps style autocomplete dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="relative z-30 -mt-1">
+                  <div className="absolute left-0 right-0 top-0 bg-white rounded-2xl border border-[#E5E7EB] shadow-xl overflow-hidden max-h-72 overflow-y-auto hide-scrollbar">
+                    {suggestions.map((sug) => (
+                      <button
+                        key={sug.id}
+                        type="button"
+                        onClick={() => handlePickSuggestion(sug)}
+                        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-[#F3F4F6] transition-colors border-b border-[#F3F4F6] last:border-0"
+                      >
+                        <span className="material-symbols-outlined text-[#9CA3AF] text-[20px] shrink-0 mt-0.5">
+                          place
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-bold text-[#111827] truncate">
+                            {sug.placeName || sug.description}
+                          </div>
+                          {sug.address && (
+                            <div className="text-[11px] text-[#6B7280] truncate">
+                              {sug.address}
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* City Selection Pills */}
               <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar pb-1">
