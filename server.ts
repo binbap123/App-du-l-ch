@@ -15,7 +15,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const DB_FILE = path.join(__dirname, "db.json");
 
 // Helper to read database
