@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { TrendingSpot } from "../types";
+import { fetchJson } from "../lib/api";
+
+interface TrendingResponse {
+  success: true;
+  data: TrendingSpot[];
+  source?: string;
+  updatedAt?: number | null;
+}
 
 interface TrendingViewProps {
   onOpenAIPlan: (destName: string) => void;
@@ -30,21 +38,19 @@ export const TrendingView: React.FC<TrendingViewProps> = ({ onOpenAIPlan }) => {
   const [spots, setSpots] = useState<TrendingSpot[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [source, setSource] = useState<string>("fallback");
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [selectedPlatform, setSelectedPlatform] = useState<string>("all");
+
+  const applyResult = (result: TrendingResponse) => {
+    if (Array.isArray(result.data)) setSpots(result.data);
+    setSource(result.source || "fallback");
+    setUpdatedAt(result.updatedAt || null);
+  };
 
   const fetchTrending = async () => {
     try {
-      const res = await fetch("/api/trending-spots");
-      const result = await res.json();
-      if (result.success && Array.isArray(result.data)) {
-        setSpots(result.data);
-        if (result.data[0]?.savedAt) {
-          setLastUpdated(new Date(result.data[0].savedAt).toLocaleDateString("vi-VN", {
-            day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
-          }));
-        }
-      }
+      applyResult(await fetchJson<TrendingResponse>("/api/trending-spots", { timeoutMs: 15_000 }));
     } catch (err) {
       console.error("Lỗi tải trending:", err);
     } finally {
@@ -55,20 +61,19 @@ export const TrendingView: React.FC<TrendingViewProps> = ({ onOpenAIPlan }) => {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const res = await fetch("/api/trending-spots/refresh", { method: "POST" });
-      const result = await res.json();
-      if (result.success) {
-        setSpots(result.data);
-        setLastUpdated(new Date().toLocaleDateString("vi-VN", {
-          day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
-        }));
-      }
+      applyResult(await fetchJson<TrendingResponse>("/api/trending-spots/refresh", { method: "POST" }));
     } catch (err) {
       console.error("Lỗi refresh trending:", err);
     } finally {
       setIsRefreshing(false);
     }
   };
+
+  // "gemini"/"cache" = danh sách do AI gợi ý; còn lại = danh sách tuyển chọn sẵn. Không hiển thị số lượt xem.
+  const isAI = source === "gemini" || source === "cache";
+  const sourceLabel = isAI
+    ? `Gợi ý bởi AI • cập nhật ${updatedAt ? new Date(updatedAt).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }) : "gần đây"}`
+    : "Danh sách tuyển chọn";
 
   useEffect(() => { fetchTrending(); }, []);
 
@@ -90,21 +95,21 @@ export const TrendingView: React.FC<TrendingViewProps> = ({ onOpenAIPlan }) => {
           <div className="flex items-center gap-2 mb-1">
             <span className="w-2.5 h-2.5 rounded-full bg-[#FF6B35] animate-pulse" />
             <span className="text-[11px] font-extrabold uppercase tracking-widest text-[#FF6B35]">
-              Live Trending
+              Trending
             </span>
           </div>
           <h1 className="text-[24px] font-extrabold text-white leading-tight">
-            🔥 Đang bùng nổ trên MXH
+            🔥 Được nhắc nhiều trên MXH
           </h1>
           <p className="text-[13px] text-white/60 mt-1">
-            AI tổng hợp địa điểm hot nhất từ TikTok, Threads, Instagram
+            Địa điểm hay xuất hiện trên TikTok, Threads, Facebook (không phải số liệu thống kê)
           </p>
 
           {/* Refresh button */}
           <div className="mt-3 flex items-center justify-between">
-            {lastUpdated && (
-              <span className="text-[11px] text-white/40">
-                Cập nhật: {lastUpdated}
+            {!isLoading && (
+              <span className="text-[11px] text-white/50">
+                {sourceLabel}
               </span>
             )}
             <button
@@ -115,7 +120,7 @@ export const TrendingView: React.FC<TrendingViewProps> = ({ onOpenAIPlan }) => {
               <span className={`material-symbols-outlined text-[15px] ${isRefreshing ? "animate-spin" : ""}`}>
                 {isRefreshing ? "autorenew" : "auto_awesome"}
               </span>
-              {isRefreshing ? "AI đang cập nhật..." : "AI Làm mới ngay"}
+              {isRefreshing ? "Đang cập nhật..." : "Làm mới"}
             </button>
           </div>
         </div>

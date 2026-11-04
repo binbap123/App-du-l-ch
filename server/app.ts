@@ -7,7 +7,6 @@ import { suggestRouter } from "./routes/suggest.js";
 import { placesRouter } from "./routes/places.js";
 import { geocodeRouter } from "./routes/geocode.js";
 import { trendingRouter } from "./routes/trending.js";
-import { itinerariesRouter } from "./routes/itineraries.js";
 
 /** Tạo Express app (không listen) — dùng chung cho server thật và test. */
 export function createApp() {
@@ -27,7 +26,6 @@ export function createApp() {
   app.use(placesRouter);
   app.use(geocodeRouter);
   app.use(trendingRouter);
-  app.use(itinerariesRouter); // @deprecated — Agent Data xóa
 
   app.use("/api", (_req, res) => sendError(res, 404, "NOT_FOUND", "API không tồn tại"));
 

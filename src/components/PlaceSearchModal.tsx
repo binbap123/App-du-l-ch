@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ScheduleItem, DayItinerary } from "../types";
 import { PlaceSearchResult, searchLocalPlaces } from "../data/placesData";
+import { fetchJson, ApiError } from "../lib/api";
 
 interface PlaceSearchModalProps {
   isOpen: boolean;
@@ -46,6 +47,9 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const serverDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const autocompleteAbortRef = useRef<AbortController | null>(null);
 
   // Synchronize target day when activeDayIndex prop changes
   useEffect(() => {
@@ -61,65 +65,112 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
     }
   }, [destinationCity]);
 
-  // Focus search input when modal opens
+  // Huỷ timer + request đang chạy khi đóng modal.
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (serverDebounceRef.current) clearTimeout(serverDebounceRef.current);
+      searchAbortRef.current?.abort();
+      autocompleteAbortRef.current?.abort();
+    };
+  }, []);
+
+  // Mở modal / đổi thành phố / đổi danh mục → lọc local ngay + gọi server (debounce 400ms).
   useEffect(() => {
     if (isOpen) {
       setSelectedPlace(null);
       setTimeout(() => {
         searchInputRef.current?.focus();
       }, 150);
-      handleSearch(searchQuery, selectedCity, selectedCategory);
+      runLocalSearch(searchQuery, selectedCity, selectedCategory);
+      scheduleServerSearch(searchQuery, selectedCity, selectedCategory);
+    } else {
+      // Đóng modal → bỏ các lần gọi đang chờ.
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (serverDebounceRef.current) clearTimeout(serverDebounceRef.current);
+      searchAbortRef.current?.abort();
+      autocompleteAbortRef.current?.abort();
     }
   }, [isOpen, selectedCity, selectedCategory]);
 
-  const handleSearch = async (query: string, city: string, category: string) => {
+  /** Lọc DB nội bộ — không tốn request. Dùng khi gõ phím. */
+  const runLocalSearch = (query: string, city: string, category: string) => {
+    setResults(searchLocalPlaces(query, city, category));
+  };
+
+  /**
+   * Gọi /api/places/search (có thể tốn quota SerpApi). CHỈ khi bấm Enter / nút tìm,
+   * chọn gợi ý, hoặc đổi thành phố/danh mục — KHÔNG gọi khi gõ phím.
+   */
+  const handleServerSearch = async (query: string, city: string, category: string) => {
+    if (serverDebounceRef.current) clearTimeout(serverDebounceRef.current);
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+
+    runLocalSearch(query, city, category);
     setIsLoading(true);
     try {
-      // 1. Initial fast local search
-      const local = searchLocalPlaces(query, city, category);
-      setResults(local);
-
-      // 2. Fetch from backend with Gemini Google Maps Places enrichment if query is provided or local is small
-      const res = await fetch("/api/places/search", {
+      const data = await fetchJson<{ success: true; data: PlaceSearchResult[] }>("/api/places/search", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, city, category }),
+        body: { query, city, category },
+        signal: controller.signal,
+        timeoutMs: 20_000,
       });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+      if (!controller.signal.aborted && Array.isArray(data.data) && data.data.length > 0) {
         setResults(data.data);
       }
     } catch (err) {
-      console.error("Lỗi khi tìm kiếm địa điểm:", err);
+      if (!(err instanceof ApiError && err.code === "ABORTED")) {
+        console.error("Lỗi khi tìm kiếm địa điểm:", err);
+      }
     } finally {
-      setIsLoading(false);
+      if (searchAbortRef.current === controller) setIsLoading(false);
     }
   };
 
-  // Debounced live search
+  const scheduleServerSearch = (query: string, city: string, category: string) => {
+    if (serverDebounceRef.current) clearTimeout(serverDebounceRef.current);
+    serverDebounceRef.current = setTimeout(() => handleServerSearch(query, city, category), 400);
+  };
+
+  // Gõ phím: chỉ lọc local + autocomplete (debounce 500ms; server trả [] trừ khi bật SERPAPI_AUTOCOMPLETE).
   const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setSearchQuery(val);
-    handleSearch(val, selectedCity, selectedCategory);
+    runLocalSearch(val, selectedCity, selectedCategory);
 
-    // Live autocomplete suggestions like Google Maps
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    autocompleteAbortRef.current?.abort();
     if (val.trim().length >= 2) {
       debounceRef.current = setTimeout(async () => {
+        const controller = new AbortController();
+        autocompleteAbortRef.current = controller;
         try {
-          const res = await fetch(`/api/places/autocomplete?q=${encodeURIComponent(val)}&city=${encodeURIComponent(selectedCity)}`);
-          const data = await res.json();
-          if (data.success) {
-            setSuggestions(data.data || []);
-            setShowSuggestions(true);
-          }
+          const data = await fetchJson<{ success: true; data: any[] }>(
+            `/api/places/autocomplete?q=${encodeURIComponent(val)}&city=${encodeURIComponent(selectedCity)}`,
+            { signal: controller.signal, timeoutMs: 10_000 }
+          );
+          if (controller.signal.aborted) return;
+          setSuggestions(data.data || []);
+          setShowSuggestions((data.data || []).length > 0);
         } catch (err) {
-          console.error("Lỗi autocomplete:", err);
+          if (!(err instanceof ApiError && err.code === "ABORTED")) console.error("Lỗi autocomplete:", err);
         }
-      }, 300);
+      }, 500);
     } else {
       setShowSuggestions(false);
       setSuggestions([]);
+    }
+  };
+
+  // Enter trong ô tìm kiếm → gọi server ngay.
+  const handleQueryKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      setShowSuggestions(false);
+      handleServerSearch(searchQuery, selectedCity, selectedCategory);
     }
   };
 
@@ -128,7 +179,7 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
     setSearchQuery(sug.placeName || sug.description);
     setShowSuggestions(false);
     setSuggestions([]);
-    handleSearch(sug.placeName || sug.description, selectedCity, selectedCategory);
+    handleServerSearch(sug.placeName || sug.description, selectedCity, selectedCategory);
   };
 
   // When user clicks a place from the search results
@@ -300,20 +351,32 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
             <div className="space-y-4">
               {/* Google Maps Search Bar */}
               <div className="relative flex items-center">
-                <span className="material-symbols-outlined absolute left-4 text-[#1A73E8] text-[22px]">
+                <button
+                  type="button"
+                  aria-label="Tìm trên Google Maps"
+                  title="Tìm (Enter)"
+                  onClick={() => {
+                    if (debounceRef.current) clearTimeout(debounceRef.current);
+                    setShowSuggestions(false);
+                    handleServerSearch(searchQuery, selectedCity, selectedCategory);
+                  }}
+                  className="material-symbols-outlined absolute left-3 z-10 p-1 rounded-full text-[#1A73E8] text-[22px] hover:bg-[#1A73E8]/10"
+                >
                   search
-                </span>
+                </button>
                 <input
                   ref={searchInputRef}
                   type="text"
+                  enterKeyHint="search"
                   value={searchQuery}
                   onChange={handleQueryChange}
+                  onKeyDown={handleQueryKeyDown}
                   placeholder={`Tìm quán ăn, cà phê, điểm check-in tại ${selectedCity}...`}
                   className="w-full bg-[#F3F4F6] hover:bg-[#E5E7EB]/70 focus:bg-white text-[#111827] placeholder-[#6B7280] text-[14px] font-medium pl-12 pr-10 py-3.5 rounded-2xl border border-[#E5E7EB] focus:border-[#1A73E8] focus:ring-2 focus:ring-[#1A73E8]/20 transition-all outline-none"
                 />
                 {searchQuery && (
                   <button
-                    onClick={() => { setSearchQuery(""); handleSearch("", selectedCity, selectedCategory); }}
+                    onClick={() => { setSearchQuery(""); setShowSuggestions(false); runLocalSearch("", selectedCity, selectedCategory); }}
                     className="absolute right-3.5 text-[#9CA3AF] hover:text-[#111827] p-1"
                   >
                     <span className="material-symbols-outlined text-[18px]">cancel</span>
@@ -361,8 +424,8 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
                   <button
                     key={c}
                     onClick={() => {
+                      // useEffect [selectedCity] lo phần tìm kiếm (local ngay + server debounce 400ms).
                       setSelectedCity(c);
-                      handleSearch(searchQuery, c, selectedCategory);
                     }}
                     className={`shrink-0 text-[12px] font-bold px-3 py-1 rounded-full whitespace-nowrap transition-all ${
                       selectedCity.toLowerCase().includes(c.toLowerCase())
@@ -381,8 +444,8 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
                   <button
                     key={cat.id}
                     onClick={() => {
+                      // useEffect [selectedCategory] lo phần tìm kiếm (local ngay + server debounce 400ms).
                       setSelectedCategory(cat.id);
-                      handleSearch(searchQuery, selectedCity, cat.id);
                     }}
                     className={`shrink-0 text-[12px] font-bold px-3 py-1.5 rounded-xl whitespace-nowrap transition-all flex items-center gap-1.5 ${
                       selectedCategory === cat.id
