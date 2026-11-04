@@ -102,13 +102,13 @@ src/
 6. Thêm `vitest` cùng vài test mẫu; script `npm run check` = lint + test + build.
 7. Cập nhật `.env.example` và README.
 
-**Trạng thái: ✅ XONG (04/11/2026).**
+**Trạng thái: đã xong (04/11/2026).**
 
 **Xong khi:** `npm run check` pass, app chạy như cũ (không đổi tính năng), mọi file trong 2.1 đã tồn tại kèm stub và comment `TODO(agent-x)`.
 
 ### Phase 1: 3 agent song song (Opus medium, mỗi agent một worktree)
 
-**Trạng thái: ✅ XONG và đã gộp (04/11/2026), 186 test pass.** Việc còn lại chuyển sang Phase 2: thêm tọa độ cho lịch trình mẫu (`sampleItineraries.ts`, `DEFAULT_ITINERARY_DANANG`), nối `useSuggestions` vào builder, gộp 2 bản `matchVerifiedPlace` (geocode.ts và itinerary.ts), clustering marker ở Explore.
+**Trạng thái: đã xong và đã gộp (04/11/2026), 186 test pass.** Việc còn lại chuyển sang Phase 2: thêm tọa độ cho lịch trình mẫu (`sampleItineraries.ts`, `DEFAULT_ITINERARY_DANANG`), nối `useSuggestions` vào builder, gộp 2 bản `matchVerifiedPlace` (geocode.ts và itinerary.ts), clustering marker ở Explore.
 
 **Agent Data & Backend.** Chỉ sửa: `server/routes/{places,geocode,trending}.ts`, `src/lib/tripStore.ts`, `src/hooks/useTrips.ts`, `App.tsx` (phần state trip)
 - `tripStore` dùng localStorage có version key (`wanderai.trips.v1`), xử lý try/catch, migrate dữ liệu cũ; thêm export/import JSON.
