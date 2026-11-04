@@ -5,7 +5,12 @@ import { placesSearchBody } from "../lib/validate.js";
 import { TTLCache, normalizeKey } from "../lib/cache.js";
 import { searchLocalPlaces, type PlaceSearchResult } from "../../src/data/placesData.js";
 
-// TODO(agent-data): FE chỉ gọi search khi submit; autocomplete chỉ bật khi SERPAPI_AUTOCOMPLETE=true.
+/**
+ * Tiết kiệm quota SerpApi (D4):
+ * - FE chỉ gọi POST /api/places/search khi người dùng bấm Enter/nút tìm hoặc đổi thành phố/danh mục
+ *   (gõ phím chỉ lọc DB nội bộ). Kết quả SerpApi cache 24h theo (query, city).
+ * - Autocomplete chỉ gọi SerpApi khi SERPAPI_AUTOCOMPLETE=true; mặc định trả [].
+ */
 
 const SERPAPI_SEARCH_URL = "https://serpapi.com/search.json";
 const GMAPS_ICON = "https://www.gstatic.com/images/branding/product/1x/places_16dp.png";
@@ -16,6 +21,10 @@ const autocompleteCache = new TTLCache<any[]>(1000, DAY);
 
 function serpKey() {
   return process.env.SERPAPI_API_KEY || "";
+}
+
+export function isAutocompleteEnabled() {
+  return process.env.SERPAPI_AUTOCOMPLETE === "true" && !!serpKey();
 }
 
 function serpCategory(types: string[]): { category: PlaceSearchResult["category"]; label: string; icon: string } {
@@ -166,7 +175,7 @@ placesRouter.post("/api/places/search", limits.placesSearch, async (req, res) =>
 placesRouter.get("/api/places/autocomplete", limits.placesSearch, async (req, res) => {
   const q = String(req.query.q || "").trim().slice(0, 120);
   const city = String(req.query.city || "").trim().slice(0, 60);
-  if (!serpKey() || q.length < 2) return res.json({ success: true, data: [] });
+  if (!isAutocompleteEnabled() || q.length < 2) return res.json({ success: true, data: [] });
 
   const query = city && city !== "all" && city !== "tất cả" ? `${q} ${city}` : q;
   const key = normalizeKey(query);
