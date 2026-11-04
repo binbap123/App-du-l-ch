@@ -95,11 +95,11 @@ export const TrendingView: React.FC<TrendingViewProps> = ({ onOpenAIPlan }) => {
           <div className="flex items-center gap-2 mb-1">
             <span className="w-2.5 h-2.5 rounded-full bg-[#FF6B35] animate-pulse" />
             <span className="text-[11px] font-extrabold uppercase tracking-widest text-[#FF6B35]">
-              Trending
+              Xu hướng
             </span>
           </div>
           <h1 className="text-[24px] font-extrabold text-white leading-tight">
-            🔥 Được nhắc nhiều trên MXH
+            Được nhắc nhiều trên mạng xã hội
           </h1>
           <p className="text-[13px] text-white/60 mt-1">
             Địa điểm hay xuất hiện trên TikTok, Threads, Facebook (không phải số liệu thống kê)
@@ -151,7 +151,7 @@ export const TrendingView: React.FC<TrendingViewProps> = ({ onOpenAIPlan }) => {
       </div>
 
       {/* Content */}
-      <main className="px-[20px] pt-4 flex flex-col gap-4">
+      <div className="px-[20px] pt-4 flex flex-col gap-4">
         {isLoading ? (
           /* Skeleton */
           Array.from({ length: 4 }).map((_, i) => (
@@ -248,7 +248,7 @@ export const TrendingView: React.FC<TrendingViewProps> = ({ onOpenAIPlan }) => {
             );
           })
         )}
-      </main>
+      </div>
     </div>
   );
 };
