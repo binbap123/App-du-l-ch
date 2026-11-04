@@ -76,33 +76,6 @@ export default function App() {
     }
   };
 
-  const handleExportGoogleMaps = () => {
-    const day1Schedule = currentItinerary.itinerary?.[0]?.schedule || [];
-    if (day1Schedule.length === 0) {
-      showToast("Chưa có địa điểm nào trong lịch trình để xuất sang Google Maps.");
-      return;
-    }
-
-    const waypoints = day1Schedule.map(
-      (item) => `${item.place_name}, ${item.address_hint || currentItinerary.meta.destination}`
-    );
-
-    const origin = encodeURIComponent(waypoints[0]);
-    const destination = encodeURIComponent(waypoints[waypoints.length - 1]);
-    const waypointsParam = waypoints
-      .slice(1, -1)
-      .map((w) => encodeURIComponent(w))
-      .join("|");
-
-    let mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`;
-    if (waypointsParam) {
-      mapsUrl += `&waypoints=${waypointsParam}`;
-    }
-
-    window.open(mapsUrl, "_blank");
-    showToast("Đã mở tuyến đường trên Google Maps!");
-  };
-
   return (
     <div className="bg-[#fbf9f5] text-[#1b1c1a] min-h-screen font-sans antialiased selection:bg-[#e2a854] selection:text-[#603e00]">
       {/* Top Header (Hide when in Builder mode to match native mobile feel) */}
@@ -146,7 +119,6 @@ export default function App() {
                 onSelectItinerary={handleSelectItinerary}
                 onDeleteItinerary={handleDeleteItinerary}
                 onOpenBuilder={() => setActiveTab("builder")}
-                onExportGoogleMaps={handleExportGoogleMaps}
               />
             }
           />

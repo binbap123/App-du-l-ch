@@ -88,20 +88,6 @@ export interface ChatMessage {
   itineraryData?: WanderItineraryData;
 }
 
-export interface PlaceMarker {
-  id: string;
-  name: string;
-  category: "food" | "cafe" | "attraction" | "park";
-  distance: string;
-  rating?: number;
-  views?: string;
-  isHotTikTok?: boolean;
-  hotBadge?: string;
-  imageUrl: string;
-  topPercent: string;
-  leftPercent: string;
-}
-
 export interface TrendingSpot {
   id: string;
   name: string;

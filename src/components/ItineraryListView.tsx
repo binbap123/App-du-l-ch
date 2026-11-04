@@ -12,8 +12,6 @@ interface ItineraryListViewProps {
   onSelectItinerary: (itinerary: WanderItineraryData) => void;
   onDeleteItinerary: (id: string) => void;
   onOpenBuilder: () => void;
-  /** @deprecated Không còn dùng (export theo từng trip qua mapsExport). Giữ để App.tsx không lỗi — Phase 3 dọn. */
-  onExportGoogleMaps?: () => void;
 }
 
 const CITY_IMAGES: Record<string, string> = {

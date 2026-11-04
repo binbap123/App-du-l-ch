@@ -1,4 +1,4 @@
-import { WanderItineraryData, PlaceMarker } from "../types";
+import { WanderItineraryData } from "../types";
 
 export const DEFAULT_ITINERARY_DANANG: WanderItineraryData = {
   meta: {
@@ -205,51 +205,6 @@ export const DEFAULT_ITINERARY_DANANG: WanderItineraryData = {
     }
   ]
 };
-
-export const MOCK_MAP_PLACES: PlaceMarker[] = [
-  {
-    id: "p1",
-    name: "Lăng Chủ tịch Hồ Chí Minh",
-    category: "attraction",
-    distance: "3.2 km",
-    views: "7.2k",
-    isHotTikTok: true,
-    hotBadge: "HOT TikTok",
-    imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuCQaeLXcuxT8j0GQ-8ehr1wvon3ary3s-08q3238jTI_mjWLZ4xJqRcyx-FDcO_PId8Cy05ZyPzULXmsFiyoJd5quv6YJPAgl7Q0l3KK9_5Gro1sXZ6KzEYwyfaMjLWmUzFyxm2EBAErAoTWxJWbJVCbNOh-iSXbNYquOHWPfUNCCUUybNuLVtKuW-BbGUWoNokOowCY2mOuMailuPADz0C7Qzz3LKe0yssD0WOQxhBcS8A9rndZGIj",
-    topPercent: "35%",
-    leftPercent: "45%"
-  },
-  {
-    id: "p2",
-    name: "Phở Thìn Lò Đúc",
-    category: "food",
-    distance: "1.5 km",
-    rating: 4.8,
-    imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuAwsezEKNM0xjso44KApjBlIAZZaPR8BbuF26IKDs89_HhDPxwROMoWQaPVUNDfJc_4Lv8HIQl4ARTiJ3iITULMA23cBds30WWklqCkoT_cB6eE750YoXTAo-Lu7qqSEdkulhVCRssUi992duh2VP-W9NxV3tFWolnDdoKQFDyDecT7QIYPjcWCJBjcxsGW99ZYhkkDCnbO8ltcNpHXOm6SnEMtCDoMdlsUKGzYpgYjh0jUqWckqEUR",
-    topPercent: "50%",
-    leftPercent: "25%"
-  },
-  {
-    id: "p3",
-    name: "Cộng Cà Phê",
-    category: "cafe",
-    distance: "0.8 km",
-    views: "4.1k",
-    imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuCHWz4XfHJFN1sFi6DHrr9WoRDrImQhB990WTXerEss2qvN9KuLoS16GZmr14q5Tel0UFmrwwdNZEQ7qGUgvtz0iqch4AtndiD4uAPMQjkTT2FJxrXkUF0cgltMFxFdQiR1rn207BmpL6s9gRE7yNkytSls3t_bHTRFDWReAYu51Y24PLDuMcFy_E7vHoLKCguI2lbsNObWIo9QTrP1MJsZ8EaXAed1Sc9E0BVY1lqtUZziHbmWrN7J",
-    topPercent: "25%",
-    leftPercent: "65%"
-  },
-  {
-    id: "p4",
-    name: "Công viên Yên Sở",
-    category: "park",
-    distance: "4.5 km",
-    rating: 4.7,
-    imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBamVqi82kE91WpwMhDWCKxiFFwKETksdgL7bKhJ2XKj28pGydUB5ccPL-rGDm3DMkbPLYUqGk_LjhV3UJxDghEwwbIsRtqUgyfxYaxf3FymP77oRXFUbyrjH1rGE3-rx8MuMy3m_J-22Ni_QkZ6ToEkcr6EudNLqAH_6KTGOfAXeUwgtCqnO9p_SWjZhdU3FMztLhK8kJYh5XEochW3kOplcjKV377oJvaGAeycn2h9o5XXCVEpKRf",
-    topPercent: "65%",
-    leftPercent: "75%"
-  }
-];
 
 export const MOCK_TRAY_SUGGESTIONS = [
   {
