@@ -108,6 +108,8 @@ src/
 
 ### Phase 1: 3 agent song song (Opus medium, mỗi agent một worktree)
 
+**Trạng thái: ✅ XONG và đã gộp (04/11/2026), 186 test pass.** Việc còn lại chuyển sang Phase 2: thêm tọa độ cho lịch trình mẫu (`sampleItineraries.ts`, `DEFAULT_ITINERARY_DANANG`), nối `useSuggestions` vào builder, gộp 2 bản `matchVerifiedPlace` (geocode.ts và itinerary.ts), clustering marker ở Explore.
+
 **Agent Data & Backend.** Chỉ sửa: `server/routes/{places,geocode,trending}.ts`, `src/lib/tripStore.ts`, `src/hooks/useTrips.ts`, `App.tsx` (phần state trip)
 - `tripStore` dùng localStorage có version key (`wanderai.trips.v1`), xử lý try/catch, migrate dữ liệu cũ; thêm export/import JSON.
 - `/api/geocode` dùng Nominatim (header User-Agent riêng của app, 1 req/s, cache); ưu tiên khớp `placesData.ts` trước.

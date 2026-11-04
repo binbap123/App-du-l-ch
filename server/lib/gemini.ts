@@ -80,7 +80,7 @@ export async function generateJson<T>(opts: GenerateJsonOptions): Promise<T> {
     if (controller.signal.aborted) {
       throw new GeminiError("TIMEOUT", `Gemini không phản hồi sau ${timeoutMs / 1000}s`);
     }
-    if (err instanceof ApiError && err.status === 429) {
+    if ((err instanceof ApiError && err.status === 429) || err?.status === 429 || err?.code === 429) {
       throw new GeminiError("RATE_LIMITED", "Đã hết quota Gemini miễn phí, thử lại sau");
     }
     throw new GeminiError("UPSTREAM", err?.message || "Lỗi khi gọi Gemini");
