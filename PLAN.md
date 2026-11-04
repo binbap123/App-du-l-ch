@@ -134,6 +134,8 @@ src/
 
 ### Phase 2: UI (Opus medium, 2 agent song song, chạy sau khi gộp Phase 1)
 
+**Đã đổi sang bản gọn (04/11/2026), 1 agent duy nhất để tiết kiệm usage.** Phạm vi: trang chi tiết chuyến đi, builder có ngày thật và gợi ý AI thật, tọa độ cho lịch trình mẫu, xóa hoặc làm thật các nút giả, viết lại câu chữ. Tạm hoãn: kéo thả, gom cụm marker, loading skeleton, trang chi tiết địa điểm, vòng review accessibility riêng. Phần mô tả 2 agent bên dưới giữ lại để tham khảo.
+
 **Agent UI-Trips.** `pages/TripsPage`, `pages/TripDetailPage` (bản đồ, timeline, ngân sách, tips), `pages/TripEditPage` (builder)
 - Builder: chọn ngày bắt đầu để có ngày thật; kéo thả bằng `@dnd-kit`; sửa input chi phí; đồng bộ khi đổi trip; tray dùng `/api/suggest`.
 - Bỏ ảnh fallback giả, dùng ảnh theo thành phố hoặc placeholder.
