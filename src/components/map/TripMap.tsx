@@ -19,6 +19,8 @@ export interface TripMapProps {
   activeDay?: number | "all";
   height?: number | string;
   onSelectItem?: (dayIdx: number, itemId: string) => void;
+  /** Ẩn thanh chọn ngày khi trang cha đã có bộ chọn ngày riêng. Mặc định hiện. */
+  showLegend?: boolean;
 }
 
 interface PlottedPoint {
@@ -55,7 +57,7 @@ function FitBounds({ points }: { points: [number, number][] }) {
   return null;
 }
 
-export const TripMap: React.FC<TripMapProps> = ({ trip, activeDay = "all", height = 260, onSelectItem }) => {
+export const TripMap: React.FC<TripMapProps> = ({ trip, activeDay = "all", height = 260, onSelectItem, showLegend = true }) => {
   const [day, setDay] = useState<number | "all">(activeDay);
   useEffect(() => setDay(activeDay), [activeDay]);
 
@@ -114,7 +116,7 @@ export const TripMap: React.FC<TripMapProps> = ({ trip, activeDay = "all", heigh
   const dayIdxWithItems = days.map((d, i) => ((d.schedule?.length ?? 0) > 0 ? i : -1)).filter((i) => i >= 0);
   const h = typeof height === "number" ? `${height}px` : height;
 
-  const legend = dayIdxWithItems.length > 1 && (
+  const legend = showLegend && dayIdxWithItems.length > 1 && (
     <div className="flex gap-1.5 overflow-x-auto hide-scrollbar pb-1" role="tablist" aria-label="Chọn ngày trên bản đồ">
       {(["all", ...dayIdxWithItems] as const).map((d) => {
         const active = day === d;

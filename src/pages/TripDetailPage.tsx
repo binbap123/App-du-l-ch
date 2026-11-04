@@ -91,7 +91,7 @@ export const TripDetailPage: React.FC<TripDetailPageProps> = ({ trip, onBack, on
             </div>
           }
         >
-          <TripMap trip={trip} height={280} activeDay={days.length > 1 ? safeIdx : "all"} />
+          <TripMap trip={trip} height={280} activeDay={days.length > 1 ? safeIdx : "all"} showLegend={false} />
         </Suspense>
       </section>
 

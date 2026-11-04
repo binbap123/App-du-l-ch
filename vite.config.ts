@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -6,6 +7,8 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    // Chỉ chạy test trong tests/ (không quét bản sao trong .claude/worktrees của agent).
+    test: { include: ["tests/**/*.test.ts"] },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

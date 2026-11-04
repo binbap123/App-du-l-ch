@@ -366,6 +366,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ onOpenAIPlan }) => {
                             <span className="material-symbols-outlined text-[13px] text-[#FF6B35]">location_on</span>
                             <span className="text-[11px] text-[#4B5563] font-medium truncate">{place.city}</span>
                           </div>
+                          {place.rating > 0 && (
                           <div className="flex items-center gap-1 text-[#FF9F43] shrink-0">
                             <span
                               className="material-symbols-outlined text-[13px]"
@@ -375,6 +376,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ onOpenAIPlan }) => {
                             </span>
                             <span className="text-[11px] font-bold text-[#111827]">{place.rating}</span>
                           </div>
+                          )}
                         </div>
                       </div>
                     </div>

@@ -524,6 +524,8 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
 
                         {/* Rating & reviews & price tier */}
                         <div className="flex items-center gap-2 text-[12px] mb-1.5 flex-wrap">
+                          {place.rating > 0 && (
+                            <>
                           <div className="flex items-center text-[#F59E0B] font-extrabold gap-0.5">
                             <span className="material-symbols-outlined text-[15px]" style={{ fontVariationSettings: "'FILL' 1" }}>
                               star
@@ -533,6 +535,8 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
                           <span className="text-[#6B7280]">
                             ({place.user_ratings_total.toLocaleString()} đánh giá)
                           </span>
+                            </>
+                          )}
                           <span className="text-[#D1D5DB]">•</span>
                           <span className="font-bold text-[#059669]">
                             {place.price_level_text}
@@ -615,9 +619,11 @@ export const PlaceSearchModal: React.FC<PlaceSearchModalProps> = ({
                     <span className="bg-[#1A73E8] text-white text-[10px] font-bold px-2 py-0.5 rounded-md">
                       {selectedPlace.category_label}
                     </span>
-                    <span className="text-[12px] text-[#F59E0B] font-bold flex items-center gap-0.5">
-                      ★ {selectedPlace.rating}
-                    </span>
+                    {selectedPlace.rating > 0 && (
+                      <span className="text-[12px] text-[#F59E0B] font-bold flex items-center gap-0.5">
+                        ★ {selectedPlace.rating}
+                      </span>
+                    )}
                   </div>
                   <h3 className="text-[16px] font-extrabold text-[#0F172A] truncate mt-0.5">
                     {selectedPlace.name}

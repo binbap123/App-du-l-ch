@@ -14,6 +14,12 @@ export function createApp() {
   app.disable("x-powered-by");
   // Render/Cloud Run đứng sau proxy → cần để rate limit lấy đúng IP.
   app.set("trust proxy", 1);
+  app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    next();
+  });
   app.use(express.json({ limit: "100kb" }));
 
   app.get("/api/health", (_req, res) => {
