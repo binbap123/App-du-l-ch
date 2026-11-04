@@ -108,7 +108,8 @@ export interface TrendingSpot {
   city: string;
   platform: "tiktok" | "threads" | "instagram" | "facebook";
   badge_label: string;
-  views: string;
+  /** @deprecated server không còn trả số lượt xem (tránh số liệu bịa) */
+  views?: string;
   imageUrl: string;
   category: "food" | "attraction" | "cafe" | "nature";
   description: string;

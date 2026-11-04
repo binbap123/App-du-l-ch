@@ -46,7 +46,7 @@ export const VERIFIED_VIETNAM_PLACES: PlaceSearchResult[] = [
     social_trend: {
       is_viral: true,
       platform: "tiktok",
-      badge_label: "🔥 Hot TikTok 1.8M views"
+      badge_label: "🔥 Nổi tiếng trên TikTok"
     },
     google_maps_url: "https://www.google.com/maps/search/?api=1&query=Banh+Trang+Thit+Heo+Hoang+Dieu+Da+Nang",
     lat: 16.0645,
@@ -150,7 +150,7 @@ export const VERIFIED_VIETNAM_PLACES: PlaceSearchResult[] = [
     social_trend: {
       is_viral: true,
       platform: "threads",
-      badge_label: "Góc ảnh Santorini triệu like"
+      badge_label: "Góc ảnh phong cách Santorini"
     },
     google_maps_url: "https://www.google.com/maps/search/?api=1&query=Son+Tra+Marina+Da+Nang",
     lat: 16.1084,
@@ -176,7 +176,7 @@ export const VERIFIED_VIETNAM_PLACES: PlaceSearchResult[] = [
     social_trend: {
       is_viral: true,
       platform: "tiktok",
-      badge_label: "Top 10 kỳ quan thế giới mới"
+      badge_label: "Cầu Vàng nổi tiếng thế giới"
     },
     google_maps_url: "https://www.google.com/maps/search/?api=1&query=Ba+Na+Hills+Cau+Vang+Da+Nang",
     lat: 15.9965,
