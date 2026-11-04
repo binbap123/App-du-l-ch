@@ -20,6 +20,8 @@ const scheduleItemSchema = {
     // Tọa độ ước lượng — tùy chọn. Agent Map sẽ geocode lại nếu thiếu.
     lat: { type: Type.NUMBER },
     lng: { type: Type.NUMBER },
+    // "verified" | "geocoded" | "ai_estimate" — server luôn ghi đè sau hậu xử lý.
+    geo_source: { type: Type.STRING },
     social_trend: {
       type: Type.OBJECT,
       properties: {
@@ -125,6 +127,15 @@ export const chatResponseSchema = {
     itinerary: { type: Type.OBJECT, properties: itineraryProperties },
   },
   required: ["reply"],
+};
+
+/** Schema cho /api/suggest — danh sách ScheduleItem. */
+export const suggestResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    suggestions: { type: Type.ARRAY, items: scheduleItemSchema },
+  },
+  required: ["suggestions"],
 };
 
 /** Kiểm tra tối thiểu để không đưa JSON hỏng lên UI. */
