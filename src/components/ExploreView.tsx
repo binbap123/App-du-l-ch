@@ -1,6 +1,16 @@
-import React, { useState } from "react";
-import { MOCK_MAP_PLACES } from "../data/mockData";
-import { PlaceMarker } from "../types";
+import React, { Suspense, lazy, useCallback, useMemo, useRef, useState } from "react";
+import { VERIFIED_VIETNAM_PLACES } from "../data/placesData";
+
+// Leaflet chỉ tải khi mở chế độ bản đồ
+const PlacesMap = lazy(() => import("./map/PlacesMap"));
+
+const MAP_FILTERS = [
+  { id: "all", label: "Tất cả", icon: "", category: null },
+  { id: "food", label: "Ẩm thực", icon: "restaurant", category: "food_specialty" },
+  { id: "cafe", label: "Cà phê", icon: "local_cafe", category: "cafe" },
+  { id: "attraction", label: "Tham quan", icon: "photo_camera", category: "attraction" },
+] as const;
+type MapFilterId = (typeof MAP_FILTERS)[number]["id"];
 
 interface ExploreViewProps {
   onSelectDestination: (destName: string) => void;
@@ -13,8 +23,10 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
-  const [selectedCategory, setSelectedCategory] = useState("all");
-  const [activeMapPlace, setActiveMapPlace] = useState<PlaceMarker>(MOCK_MAP_PLACES[0]);
+  const [selectedCategory, setSelectedCategory] = useState<MapFilterId>("all");
+  const [activeMapPlaceId, setActiveMapPlaceId] = useState<string | null>(null);
+  const carouselRef = useRef<HTMLDivElement>(null);
+  const cardRefs = useRef(new Map<string, HTMLDivElement>());
 
   const recommendedCards = [
     {
@@ -70,13 +82,29 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     }
   ];
 
-  const filteredMapPlaces = MOCK_MAP_PLACES.filter((p) => {
-    if (selectedCategory === "all") return true;
-    if (selectedCategory === "food" && p.category === "food") return true;
-    if (selectedCategory === "tiktok" && p.isHotTikTok) return true;
-    if (selectedCategory === "attraction" && p.category === "attraction") return true;
-    return true;
-  });
+  const filteredMapPlaces = useMemo(() => {
+    const cat = MAP_FILTERS.find((f) => f.id === selectedCategory)?.category;
+    return VERIFIED_VIETNAM_PLACES.filter(
+      (p) => typeof p.lat === "number" && typeof p.lng === "number" && (!cat || p.category === cat)
+    );
+  }, [selectedCategory]);
+
+  const handleFilterChange = (id: MapFilterId) => {
+    setSelectedCategory(id);
+    const cat = MAP_FILTERS.find((f) => f.id === id)?.category;
+    // bỏ chọn nếu địa điểm đang chọn không thuộc bộ lọc mới (để bản đồ fit lại toàn bộ)
+    setActiveMapPlaceId((cur) => {
+      const p = VERIFIED_VIETNAM_PLACES.find((x) => x.id === cur);
+      return p && (!cat || p.category === cat) ? cur : null;
+    });
+    carouselRef.current?.scrollTo({ left: 0 });
+  };
+
+  // Bấm marker → chọn + cuộn tới card tương ứng
+  const handleMarkerSelect = useCallback((id: string) => {
+    setActiveMapPlaceId(id);
+    cardRefs.current.get(id)?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, []);
 
   return (
     <div className="flex flex-col min-h-screen pb-[100px]">
@@ -104,7 +132,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
             }`}
           >
             <span className="material-symbols-outlined text-[18px]">map</span>
-            Bản đồ vệ tinh & Địa điểm
+            Bản đồ & Địa điểm
           </button>
         </div>
 
@@ -229,141 +257,108 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
           </section>
         </main>
       ) : (
-        /* Map View Mode */
+        /* Map View Mode — Leaflet + OpenStreetMap, dữ liệu thật từ placesData */
         <div className="relative h-[calc(100vh-210px)] w-full overflow-hidden flex flex-col font-sans">
-          {/* Google Maps Embed */}
           <div className="absolute inset-0 z-0">
-            <iframe
-              width="100%"
-              height="100%"
-              style={{ border: 0 }}
-              loading="lazy"
-              allowFullScreen
-              referrerPolicy="no-referrer-when-downgrade"
-              // TODO(agent-map): thay iframe + MOCK_MAP_PLACES bằng <TripMap> (Leaflet + OSM). Embed tạm không cần API key.
-              src={`https://maps.google.com/maps?q=${encodeURIComponent(activeMapPlace.name + ", Việt Nam")}&z=14&output=embed`}
-            />
+            <Suspense
+              fallback={
+                <div className="w-full h-full map-bg flex items-center justify-center text-[13px] text-[#6B7280]">
+                  Đang tải bản đồ…
+                </div>
+              }
+            >
+              <PlacesMap
+                places={filteredMapPlaces}
+                selectedId={activeMapPlaceId}
+                onSelect={handleMarkerSelect}
+                className="wa-explore-map"
+              />
+            </Suspense>
           </div>
 
           {/* Top Filter Bar on Map */}
           <div className="relative z-20 pt-3 px-4 flex flex-col gap-2 w-full max-w-md mx-auto pointer-events-none">
-            {/* Status Card */}
+            {/* Status Card: số địa điểm đang hiển thị thật */}
             <div className="pointer-events-auto self-start glass-panel rounded-full px-3.5 py-1.5 flex items-center gap-2 shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-[#FF6B35] animate-pulse"></span>
-              <span className="text-[11px] font-extrabold text-[#111827] uppercase tracking-wider">
-                QUANH BẠN: 40 ĐỊA ĐIỂM TRONG 5 KM
+              <span className="w-2 h-2 rounded-full bg-[#FF6B35]"></span>
+              <span className="text-[11px] font-extrabold text-[#111827] uppercase tracking-wider" data-testid="map-place-count">
+                {filteredMapPlaces.length} địa điểm đã xác minh
               </span>
-              <button className="ml-1 text-[#FF6B35] hover:text-[#E05320]">
-                <span className="material-symbols-outlined text-[16px]">refresh</span>
-              </button>
             </div>
 
             {/* Filter Pills */}
             <div className="pointer-events-auto flex gap-2 overflow-x-auto hide-scrollbar pb-1 pt-1 -mx-4 px-4">
-              <button
-                onClick={() => setSelectedCategory("all")}
-                className={`flex-shrink-0 text-[12px] font-bold px-4 py-1.5 rounded-full border transition-colors whitespace-nowrap ${
-                  selectedCategory === "all"
-                    ? "bg-[#111827] text-white border-[#111827] shadow-sm"
-                    : "bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]"
-                }`}
-              >
-                Tất cả
-              </button>
-              <button
-                onClick={() => setSelectedCategory("food")}
-                className={`flex-shrink-0 text-[12px] font-bold px-4 py-1.5 rounded-full border transition-colors whitespace-nowrap flex items-center gap-1 ${
-                  selectedCategory === "food"
-                    ? "bg-[#FF6B35] text-white border-[#FF6B35] shadow-sm"
-                    : "bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]"
-                }`}
-              >
-                <span className="material-symbols-outlined text-[14px]">restaurant</span> Ẩm thực
-              </button>
-              <button
-                onClick={() => setSelectedCategory("tiktok")}
-                className={`flex-shrink-0 text-[12px] font-bold px-4 py-1.5 rounded-full border transition-colors whitespace-nowrap flex items-center gap-1 ${
-                  selectedCategory === "tiktok"
-                    ? "bg-[#000000] text-white border-[#000000] shadow-sm"
-                    : "bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]"
-                }`}
-              >
-                <span className="material-symbols-outlined text-[14px]">videocam</span> Check-in TikTok
-              </button>
+              {MAP_FILTERS.map((f) => {
+                const active = selectedCategory === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => handleFilterChange(f.id)}
+                    className={`flex-shrink-0 text-[12px] font-bold px-4 py-1.5 rounded-full border transition-colors whitespace-nowrap flex items-center gap-1 ${
+                      active
+                        ? "bg-[#FF6B35] text-white border-[#FF6B35] shadow-sm"
+                        : "bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]"
+                    }`}
+                  >
+                    {f.icon && <span className="material-symbols-outlined text-[14px]">{f.icon}</span>}
+                    {f.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Bottom Card Carousel on Map */}
+          {/* Bottom Card Carousel on Map — đồng bộ với marker */}
           <div className="absolute bottom-4 left-0 w-full z-30 px-4">
-            <div className="flex gap-3 overflow-x-auto hide-scrollbar pb-2 snap-x snap-mandatory">
+            <div ref={carouselRef} className="flex gap-3 overflow-x-auto hide-scrollbar pb-2 snap-x snap-mandatory">
+              {filteredMapPlaces.length === 0 && (
+                <div className="w-full bg-white rounded-2xl shadow-lg border border-[#E5E7EB] p-4 text-center text-[13px] text-[#6B7280]">
+                  Chưa có địa điểm nào trong mục này.
+                </div>
+              )}
               {filteredMapPlaces.map((place) => {
-                const isSelected = place.id === activeMapPlace.id;
+                const isSelected = place.id === activeMapPlaceId;
                 return (
                   <div
                     key={place.id}
-                    onClick={() => setActiveMapPlace(place)}
+                    ref={(el) => {
+                      if (el) cardRefs.current.set(place.id, el);
+                      else cardRefs.current.delete(place.id);
+                    }}
+                    onClick={() => setActiveMapPlaceId(place.id)}
                     className={`snap-center shrink-0 w-[280px] bg-white rounded-2xl shadow-lg border overflow-hidden flex flex-col cursor-pointer transition-all ${
                       isSelected
-                        ? "border-[#FF6B35] ring-2 ring-[#FF6B35]/40 scale-[1.02]"
+                        ? "border-[#FF6B35] ring-2 ring-[#FF6B35]/40"
                         : "border-[#E5E7EB] opacity-90 hover:opacity-100"
                     }`}
                   >
                     <div className="flex p-3 gap-3">
                       <div className="w-20 h-20 rounded-xl overflow-hidden shrink-0 relative bg-[#F3F4F6]">
-                        <img
-                          src={place.imageUrl}
-                          alt={place.name}
-                          className="w-full h-full object-cover"
-                        />
-                        {place.isHotTikTok && (
-                          <div className="absolute top-1 left-1 bg-black text-white px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center gap-0.5 shadow-sm">
-                            <span
-                              className="material-symbols-outlined text-[10px]"
-                              style={{ fontVariationSettings: "'FILL' 1" }}
-                            >
-                              local_fire_department
-                            </span>
-                            {place.hotBadge || "HOT TikTok"}
-                          </div>
-                        )}
+                        <img src={place.photo_url} alt={place.name} className="w-full h-full object-cover" loading="lazy" />
                       </div>
-                      <div className="flex flex-col justify-between py-0.5 flex-1">
+                      <div className="flex flex-col justify-between py-0.5 flex-1 min-w-0">
                         <div>
                           <h3 className="text-[14px] font-bold text-[#111827] line-clamp-2 leading-tight">
                             {place.name}
                           </h3>
+                          <p className="text-[11px] text-[#6B7280] mt-0.5 truncate">{place.category_label}</p>
                         </div>
-                        <div className="flex items-center justify-between mt-2">
-                          <div className="flex items-center gap-1 bg-[#F9FAFB] px-2 py-0.5 rounded-md border border-[#E5E7EB]">
-                            <span className="material-symbols-outlined text-[13px] text-[#FF6B35]">
-                              location_on
-                            </span>
-                            <span className="text-[11px] text-[#4B5563] font-medium">
-                              {place.distance}
-                            </span>
+                        <div className="flex items-center justify-between mt-2 gap-2">
+                          <div className="flex items-center gap-1 bg-[#F9FAFB] px-2 py-0.5 rounded-md border border-[#E5E7EB] min-w-0">
+                            <span className="material-symbols-outlined text-[13px] text-[#FF6B35]">location_on</span>
+                            <span className="text-[11px] text-[#4B5563] font-medium truncate">{place.city}</span>
                           </div>
-                          {place.rating ? (
-                            <div className="flex items-center gap-1 text-[#FF9F43]">
-                              <span
-                                className="material-symbols-outlined text-[13px]"
-                                style={{ fontVariationSettings: "'FILL' 1" }}
-                              >
-                                star
-                              </span>
-                              <span className="text-[11px] font-bold text-[#111827]">
-                                {place.rating}
-                              </span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1 text-[#6B7280]">
-                              <span className="material-symbols-outlined text-[13px]">
-                                visibility
-                              </span>
-                              <span className="text-[11px] font-medium">
-                                {place.views}
-                              </span>
-                            </div>
-                          )}
+                          <div className="flex items-center gap-1 text-[#FF9F43] shrink-0">
+                            <span
+                              className="material-symbols-outlined text-[13px]"
+                              style={{ fontVariationSettings: "'FILL' 1" }}
+                            >
+                              star
+                            </span>
+                            <span className="text-[11px] font-bold text-[#111827]">{place.rating}</span>
+                          </div>
                         </div>
                       </div>
                     </div>

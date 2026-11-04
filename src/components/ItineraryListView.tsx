@@ -1,5 +1,10 @@
-import React, { useState } from "react";
+import React, { Suspense, lazy, useState } from "react";
 import { WanderItineraryData } from "../types";
+import { buildTripDirectionsUrls } from "../lib/mapsExport";
+import { dayColor } from "./map/mapUtils";
+
+// Leaflet chỉ tải khi mở rộng một card
+const TripMap = lazy(() => import("./map/TripMap"));
 
 interface ItineraryListViewProps {
   itineraries: WanderItineraryData[];
@@ -7,6 +12,7 @@ interface ItineraryListViewProps {
   onSelectItinerary: (itinerary: WanderItineraryData) => void;
   onDeleteItinerary: (id: string) => void;
   onOpenBuilder: () => void;
+  /** @deprecated Không còn dùng (export theo từng trip qua mapsExport). Giữ để App.tsx không lỗi — Phase 3 dọn. */
   onExportGoogleMaps?: () => void;
 }
 
@@ -31,7 +37,6 @@ export const ItineraryListView: React.FC<ItineraryListViewProps> = ({
   onSelectItinerary,
   onDeleteItinerary,
   onOpenBuilder,
-  onExportGoogleMaps,
 }) => {
   const [expandedItineraryId, setExpandedItineraryId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -229,18 +234,45 @@ export const ItineraryListView: React.FC<ItineraryListViewProps> = ({
                           ))}
                         </div>
 
-                        {onExportGoogleMaps && itinerary.itinerary?.[0]?.schedule?.length > 0 && (
-                          <button
-                            onClick={() => {
-                              onSelectItinerary(itinerary);
-                              setTimeout(() => onExportGoogleMaps(), 200);
-                            }}
-                            className="w-full py-2.5 bg-[#FFF7ED] text-[#FF6B35] rounded-xl font-bold text-[13px] flex items-center justify-center gap-1.5 hover:bg-[#FFEDD5] border border-[#FFEDD5]"
-                          >
-                            <span className="material-symbols-outlined text-[16px]">map</span>
-                            Xuất Tuyến Đường Google Maps
-                          </button>
-                        )}
+                        {/* Bản đồ tuyến (chỉ mount khi card mở) */}
+                        <Suspense
+                          fallback={
+                            <div className="h-[220px] rounded-xl map-bg flex items-center justify-center text-[12px] text-[#6B7280]">
+                              Đang tải bản đồ…
+                            </div>
+                          }
+                        >
+                          <TripMap trip={itinerary} height={220} />
+                        </Suspense>
+
+                        {(() => {
+                          const links = buildTripDirectionsUrls(itinerary);
+                          if (!links.length) return null;
+                          return (
+                            <div className="flex flex-col gap-2 bg-[#FFF7ED] border border-[#FFEDD5] rounded-xl p-3">
+                              <p className="text-[12px] font-bold text-[#9A3412] flex items-center gap-1.5">
+                                <span className="material-symbols-outlined text-[16px]">directions</span>
+                                Chỉ đường Google Maps theo ngày
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {links.map(({ day, dayIdx, url }) => (
+                                  <a
+                                    key={dayIdx}
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    data-testid="day-directions-link"
+                                    className="inline-flex items-center gap-1.5 bg-white text-[#111827] text-[12px] font-bold px-3 py-1.5 rounded-full border border-[#E5E7EB] hover:border-[#FF6B35] hover:text-[#FF6B35] transition-colors"
+                                  >
+                                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: dayColor(dayIdx) }} />
+                                    Ngày {day}
+                                    <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>
