@@ -1,169 +1,161 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
+import * as tripStore from "../lib/tripStore";
+import { clearChat } from "../hooks/useChat";
+import { exportFileName } from "../lib/uiFormat";
 
-export const SettingsView: React.FC = () => {
-  const [userName, setUserName] = useState("Nguyễn Trà My");
-  const [userEmail, setUserEmail] = useState("my.nguyen@example.com");
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+interface SettingsViewProps {
+  /** Gọi sau khi xóa toàn bộ dữ liệu để App bỏ bản nháp đang mở. */
+  onDraftCleared?: () => void;
+}
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+type Status = { kind: "ok" | "error"; text: string } | null;
+
+const rowClass =
+  "sleek-card rounded-2xl p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-[#E5E7EB] flex items-center gap-4 hover:border-[#FF6B35] transition-all text-left group w-full focus-visible:outline-2 focus-visible:outline-[#FF6B35]";
+
+export const SettingsView: React.FC<SettingsViewProps> = ({ onDraftCleared }) => {
+  const [status, setStatus] = useState<Status>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = () => {
+    try {
+      const json = tripStore.exportTrips();
+      const count = tripStore.listTrips().length;
+      const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = exportFileName();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setStatus({ kind: "ok", text: `Đã xuất ${count} chuyến đi ra file ${a.download}.` });
+    } catch {
+      setStatus({ kind: "error", text: "Không xuất được dữ liệu. Thử lại sau." });
+    }
   };
 
-  const handleSaveProfile = () => {
-    setIsEditingProfile(false);
-    showToast("Đã cập nhật thông tin cá nhân thành công!");
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const { added, skipped } = tripStore.importTrips(await file.text());
+      const skippedText = skipped ? `, bỏ qua ${skipped} chuyến (trùng hoặc không hợp lệ)` : "";
+      setStatus({ kind: added ? "ok" : "error", text: `Đã thêm ${added} chuyến đi${skippedText}.` });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "File không đọc được";
+      setStatus({ kind: "error", text: `${msg}. Hãy chọn file .json đã xuất từ WanderAI.` });
+    }
+  };
+
+  const handleClearAll = () => {
+    const count = tripStore.listTrips().length;
+    if (!confirm(`Xóa ${count} chuyến đi và toàn bộ lịch sử trò chuyện trên trình duyệt này? Không thể hoàn tác.`)) return;
+    for (const t of tripStore.listTrips()) if (t.id) tripStore.deleteTrip(t.id);
+    tripStore.writeCurrentTripId(null);
+    clearChat();
+    onDraftCleared?.();
+    setStatus({ kind: "ok", text: "Đã xóa toàn bộ chuyến đi và lịch sử trò chuyện." });
   };
 
   return (
     <div className="flex flex-col min-h-screen pb-[120px] px-[20px] pt-4 max-w-2xl mx-auto w-full">
-      {/* Profile Card Section */}
-      <section className="sleek-card rounded-2xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-[#E5E7EB] flex flex-col items-center gap-4 text-center">
-        <div className="relative">
-          <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-[#FF6B35] shadow-sm">
-            <img
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuA9ay_RlhndkG5BtlQ1JYkLYD2UMuqfZPmLIQTtbkjkZ16ZyBgeJwgvc_H_-OCufCyLDpwhG3DNSHl-5I_P5Wa5feKvJmuHbEZFNw-QJgdKlQe5XQUuLRkCVbKRwuLo1k6iXrtM8Dz8Szor45RTkScOls4sSv-q1DBx_-TWf5MZnSiqMhIyr-3UciLHeiX8aN9X4r--EWp_Wn_uH12EG2y-5UG-6vDfH-pKk6m9Wk0OW3bpOa_GoJUS"
-              alt="Người dùng"
-              className="w-full h-full object-cover"
-            />
-          </div>
+      <h2 className="text-[24px] font-extrabold text-[#1b1c1a] tracking-tight">Cài đặt</h2>
+
+      <section className="mt-5" aria-labelledby="data-heading">
+        <h3 id="data-heading" className="text-[15px] font-extrabold text-[#111827] mb-1">
+          Dữ liệu của bạn
+        </h3>
+        <p className="text-[13px] text-[#6B7280] mb-3">
+          Chuyến đi được lưu ngay trên trình duyệt này. Xuất ra file để sao lưu hoặc chuyển sang máy khác.
+        </p>
+
+        <div className="flex flex-col gap-3">
+          <button onClick={handleExport} className={rowClass}>
+            <div className="w-10 h-10 rounded-xl bg-[#FFF7ED] flex items-center justify-center text-[#FF6B35] shrink-0">
+              <span className="material-symbols-outlined" aria-hidden="true">download</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="block text-[15px] font-bold text-[#111827]">Xuất dữ liệu</span>
+              <span className="block text-[13px] text-[#6B7280]">Tải mọi chuyến đi về dạng file JSON</span>
+            </div>
+          </button>
+
+          <button onClick={() => fileRef.current?.click()} className={rowClass}>
+            <div className="w-10 h-10 rounded-xl bg-[#FFF7ED] flex items-center justify-center text-[#FF6B35] shrink-0">
+              <span className="material-symbols-outlined" aria-hidden="true">upload</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="block text-[15px] font-bold text-[#111827]">Nhập dữ liệu</span>
+              <span className="block text-[13px] text-[#6B7280]">Thêm chuyến đi từ file JSON đã xuất</span>
+            </div>
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            data-testid="import-input"
+            onChange={handleImportFile}
+          />
+
           <button
-            onClick={() => setIsEditingProfile(!isEditingProfile)}
-            className="absolute bottom-0 right-0 w-8 h-8 sleek-gradient-bg text-white rounded-full flex items-center justify-center shadow-md hover:scale-105 transition-transform"
+            onClick={handleClearAll}
+            className={`${rowClass} hover:bg-[#FEF2F2] hover:border-[#EF4444]`}
           >
-            <span className="material-symbols-outlined text-[16px]">edit</span>
+            <div className="w-10 h-10 rounded-xl bg-[#FEE2E2] flex items-center justify-center text-[#EF4444] shrink-0">
+              <span className="material-symbols-outlined" aria-hidden="true">delete_forever</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="block text-[15px] font-bold text-[#B91C1C]">Xóa toàn bộ dữ liệu</span>
+              <span className="block text-[13px] text-[#6B7280]">Xóa chuyến đi và lịch sử trò chuyện</span>
+            </div>
           </button>
         </div>
 
-        {isEditingProfile ? (
-          <div className="w-full space-y-3 text-left">
-            <div>
-              <label className="text-[12px] font-bold text-[#6B7280]">Họ và tên</label>
-              <input
-                type="text"
-                value={userName}
-                onChange={(e) => setUserName(e.target.value)}
-                className="w-full p-2.5 border border-[#E5E7EB] rounded-xl text-[14px] bg-white font-medium focus:border-[#FF6B35] outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-[12px] font-bold text-[#6B7280]">Email</label>
-              <input
-                type="email"
-                value={userEmail}
-                onChange={(e) => setUserEmail(e.target.value)}
-                className="w-full p-2.5 border border-[#E5E7EB] rounded-xl text-[14px] bg-white font-medium focus:border-[#FF6B35] outline-none"
-              />
-            </div>
-            <button
-              onClick={handleSaveProfile}
-              className="w-full py-2.5 sleek-gradient-bg text-white rounded-xl font-bold text-[13px] mt-2 shadow-[0_4px_12px_rgba(255,107,53,0.25)] hover:opacity-95"
-            >
-              Lưu thay đổi
-            </button>
-          </div>
-        ) : (
-          <div>
-            <h1 className="text-[20px] font-extrabold text-[#111827]">{userName}</h1>
-            <p className="text-[14px] text-[#6B7280] font-medium">{userEmail}</p>
-          </div>
+        {status && (
+          <p
+            role="status"
+            data-testid="settings-status"
+            className={`mt-3 text-[13px] font-medium rounded-xl px-3 py-2 border ${
+              status.kind === "ok"
+                ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
+                : "bg-[#FEF2F2] text-[#B91C1C] border-[#FECACA]"
+            }`}
+          >
+            {status.text}
+          </p>
         )}
       </section>
 
-      {/* Settings Options List */}
-      <section className="flex flex-col gap-3 mt-6">
-        <button
-          onClick={() => setIsEditingProfile(true)}
-          className="sleek-card rounded-2xl p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-[#E5E7EB] flex items-center gap-4 hover:border-[#FF6B35] transition-all text-left group"
-        >
-          <div className="w-10 h-10 rounded-xl bg-[#FFF7ED] flex items-center justify-center text-[#FF6B35] group-hover:sleek-gradient-bg group-hover:text-white transition-colors">
-            <span className="material-symbols-outlined">person</span>
-          </div>
-          <div className="flex-1">
-            <h2 className="text-[15px] font-bold text-[#111827]">Hồ sơ cá nhân</h2>
-            <p className="text-[13px] text-[#6B7280]">Quản lý thông tin cá nhân</p>
-          </div>
-          <span className="material-symbols-outlined text-[#9CA3AF] group-hover:text-[#FF6B35]">
-            chevron_right
-          </span>
-        </button>
-
-        <div className="sleek-card rounded-2xl p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-[#E5E7EB] flex items-center gap-4 text-left">
-          <div className="w-10 h-10 rounded-xl bg-[#FFF7ED] flex items-center justify-center text-[#FF6B35]">
-            <span className="material-symbols-outlined">notifications_active</span>
-          </div>
-          <div className="flex-1">
-            <h2 className="text-[15px] font-bold text-[#111827]">Thông báo</h2>
-            <p className="text-[13px] text-[#6B7280]">Tuỳ chỉnh thông báo chuyến đi</p>
-          </div>
-          <input
-            type="checkbox"
-            checked={notificationsEnabled}
-            onChange={() => {
-              setNotificationsEnabled(!notificationsEnabled);
-              showToast(
-                !notificationsEnabled
-                  ? "Đã bật thông báo chuyến đi"
-                  : "Đã tắt thông báo chuyến đi"
-              );
-            }}
-            className="w-5 h-5 accent-[#FF6B35] rounded cursor-pointer"
-          />
+      <section className="mt-8" aria-labelledby="about-heading">
+        <h3 id="about-heading" className="text-[15px] font-extrabold text-[#111827] mb-2">
+          Giới thiệu
+        </h3>
+        <div className="sleek-card rounded-2xl p-4 border border-[#E5E7EB] text-[13px] leading-relaxed text-[#4B5563] space-y-2">
+          <p>
+            WanderAI giúp bạn lên lịch trình du lịch trong nước. Gợi ý lịch trình và địa điểm do Google Gemini tạo,
+            nên hãy kiểm tra lại giờ mở cửa và giá trước khi đi.
+          </p>
+          <p>
+            WanderAI không cần tài khoản: chuyến đi và cuộc trò chuyện được lưu trên trình duyệt của bạn. Nội dung
+            bạn hỏi trợ lý được gửi tới Gemini để tạo câu trả lời.
+          </p>
+          <p>
+            Bản đồ ©{" "}
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#FF6B35] font-semibold underline"
+            >
+              OpenStreetMap
+            </a>{" "}
+            contributors.
+          </p>
         </div>
-
-        <button
-          onClick={() => showToast("Phương thức thanh toán đã được bảo mật")}
-          className="sleek-card rounded-2xl p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-[#E5E7EB] flex items-center gap-4 hover:border-[#FF6B35] transition-all text-left group"
-        >
-          <div className="w-10 h-10 rounded-xl bg-[#FFF7ED] flex items-center justify-center text-[#FF6B35] group-hover:sleek-gradient-bg group-hover:text-white transition-colors">
-            <span className="material-symbols-outlined">account_balance_wallet</span>
-          </div>
-          <div className="flex-1">
-            <h2 className="text-[15px] font-bold text-[#111827]">Tài khoản đã lưu</h2>
-            <p className="text-[13px] text-[#6B7280]">Quản lý phương thức thanh toán</p>
-          </div>
-          <span className="material-symbols-outlined text-[#9CA3AF] group-hover:text-[#FF6B35]">
-            chevron_right
-          </span>
-        </button>
-
-        <button
-          onClick={() => showToast("Trung tâm hỗ trợ WanderAI 24/7 sẵn sàng lắng nghe")}
-          className="sleek-card rounded-2xl p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-[#E5E7EB] flex items-center gap-4 hover:border-[#FF6B35] transition-all text-left group"
-        >
-          <div className="w-10 h-10 rounded-xl bg-[#FFF7ED] flex items-center justify-center text-[#FF6B35] group-hover:sleek-gradient-bg group-hover:text-white transition-colors">
-            <span className="material-symbols-outlined">help</span>
-          </div>
-          <div className="flex-1">
-            <h2 className="text-[15px] font-bold text-[#111827]">Trợ giúp & Phản hồi</h2>
-            <p className="text-[13px] text-[#6B7280]">Câu hỏi thường gặp và hỗ trợ</p>
-          </div>
-          <span className="material-symbols-outlined text-[#9CA3AF] group-hover:text-[#FF6B35]">
-            chevron_right
-          </span>
-        </button>
-
-        <button
-          onClick={() => showToast("Đã đăng xuất khỏi tài khoản WanderAI")}
-          className="sleek-card rounded-2xl p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-[#E5E7EB] flex items-center gap-4 hover:bg-[#FEE2E2] hover:border-[#EF4444] transition-all text-left group mt-2"
-        >
-          <div className="w-10 h-10 rounded-xl bg-[#FEE2E2] flex items-center justify-center text-[#EF4444] group-hover:bg-[#EF4444] group-hover:text-white transition-colors">
-            <span className="material-symbols-outlined">logout</span>
-          </div>
-          <div className="flex-1">
-            <h2 className="text-[15px] font-bold text-[#EF4444]">Đăng xuất</h2>
-          </div>
-        </button>
       </section>
-
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-[#111827] text-white text-[13px] font-bold px-4 py-2 rounded-full shadow-lg border border-white/20">
-          {toastMessage}
-        </div>
-      )}
     </div>
   );
 };

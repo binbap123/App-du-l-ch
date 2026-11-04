@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from "react";
-import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useRef, useState } from "react";
+import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { TabType, WanderItineraryData } from "./types";
-import { PATHS, tabFromPath } from "./routes";
-import { DEFAULT_ITINERARY_DANANG } from "./data/mockData";
+import { PATHS, tabFromPath, tripEditPath, tripPath } from "./routes";
 import { useTrips } from "./hooks/useTrips";
+import { readDraftTrip, writeDraftTrip } from "./lib/draftTrip";
 import { Header } from "./components/Header";
 import { Navbar } from "./components/Navbar";
 import { ExploreView } from "./components/ExploreView";
@@ -17,94 +17,90 @@ import { ItineraryListView } from "./components/ItineraryListView";
 import { ItineraryBuilderView } from "./components/ItineraryBuilderView";
 import { TrendingView } from "./components/TrendingView";
 import { SettingsView } from "./components/SettingsView";
+import { TripDetailPage, TripNotFound } from "./pages/TripDetailPage";
 
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const activeTab = tabFromPath(location.pathname);
   const setActiveTab = (tab: TabType) => navigate(PATHS[tab]);
-  const { trips: itineraries, currentTrip, setCurrentTripId, saveTrip, deleteTrip, isPersistent } = useTrips();
-  // Danh sách rỗng (người dùng xóa hết) → hiển thị lịch trình mẫu chưa lưu.
-  const currentItinerary: WanderItineraryData = currentTrip ?? DEFAULT_ITINERARY_DANANG;
+  const { trips, saveTrip, deleteTrip, isPersistent } = useTrips();
+  const [draft, setDraftState] = useState<WanderItineraryData | null>(() => readDraftTrip());
+  const draftVersion = useRef(0);
   const [prefillAIDestination, setPrefillAIDestination] = useState<string>("");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 3500);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToastMsg(null), 3500);
   };
 
-  const notPersistentNote = " (trình duyệt đang chặn bộ nhớ, dữ liệu sẽ mất khi tải lại trang)";
+  const notPersistentNote = ". Trình duyệt đang chặn bộ nhớ nên dữ liệu sẽ mất khi tải lại trang.";
+
+  const setDraft = (trip: WanderItineraryData | null) => {
+    draftVersion.current += 1;
+    setDraftState(trip);
+    writeDraftTrip(trip);
+  };
 
   const handleOpenAIPlanForDestination = (destName: string) => {
     setPrefillAIDestination(destName);
     setActiveTab("ai_assistant");
   };
 
-  const handleSelectItinerary = (itinerary: WanderItineraryData) => {
-    if (itinerary.id) {
-      setCurrentTripId(itinerary.id);
-    } else {
-      setCurrentTripId(saveTrip(itinerary).id ?? null);
-    }
-    setActiveTab("builder");
+  /** Mở một lịch trình chưa lưu (từ chat hoặc form tạo mới) trong builder. */
+  const openDraft = (itineraryData: WanderItineraryData) => {
+    setDraft(itineraryData);
+    navigate(PATHS.builder);
   };
 
-  const handleLoadItineraryToBuilder = (itineraryData: WanderItineraryData) => {
-    const saved = saveTrip(itineraryData);
-    setCurrentTripId(saved.id ?? null);
-    setActiveTab("builder");
-    showToast(
-      `Đã lưu và tải lịch trình ${saved.meta.destination} vào Trình thiết kế!${isPersistent ? "" : notPersistentNote}`
-    );
-  };
-
-  const handleSaveAndExport = (updatedData: WanderItineraryData) => {
+  const handleSave = (updatedData: WanderItineraryData, fromDraft: boolean) => {
     const saved = saveTrip(updatedData);
-    setCurrentTripId(saved.id ?? null);
-    setActiveTab("itinerary");
-    showToast(`Đã lưu lịch trình chuyến đi ${saved.meta.destination}!${isPersistent ? "" : notPersistentNote}`);
+    if (fromDraft) setDraft(null);
+    navigate(tripPath(saved.id!), { replace: fromDraft });
+    showToast(`Đã lưu chuyến đi ${saved.meta.destination}${isPersistent ? "" : notPersistentNote}`);
   };
 
-  const handleDeleteItinerary = (id: string) => {
+  const handleDelete = (id: string) => {
     if (deleteTrip(id)) {
-      // currentTrip tự chuyển sang trip đầu tiên còn lại (useTrips).
-      if (currentTrip?.id === id) setCurrentTripId(null);
-      showToast("Đã xóa lịch trình thành công!");
+      if (location.pathname !== PATHS.itinerary) navigate(PATHS.itinerary, { replace: true });
+      showToast("Đã xóa chuyến đi");
     } else {
-      showToast("Không tìm thấy lịch trình để xóa.");
+      showToast("Không tìm thấy chuyến đi để xóa");
     }
   };
+
+  const draftElement = draft ? (
+    <ItineraryBuilderView
+      key={`draft-${draftVersion.current}`}
+      itineraryData={draft}
+      onSaveAndExport={(d) => handleSave(d, true)}
+      onBack={() => navigate(PATHS.itinerary)}
+    />
+  ) : (
+    <TripNotFound
+      title="Không có bản nháp nào đang mở"
+      description="Bản nháp chỉ được giữ trong tab này. Hãy mở lại lịch trình từ Trợ lý AI hoặc tạo chuyến đi mới."
+      onBack={() => navigate(PATHS.itinerary)}
+    />
+  );
 
   return (
     <div className="bg-[#fbf9f5] text-[#1b1c1a] min-h-screen font-sans antialiased selection:bg-[#e2a854] selection:text-[#603e00]">
-      {/* Top Header (Hide when in Builder mode to match native mobile feel) */}
-      {activeTab !== "builder" && (
-        <Header
-          userLetter="N"
-          avatarUrl="https://lh3.googleusercontent.com/aida-public/AB6AXuA9ay_RlhndkG5BtlQ1JYkLYD2UMuqfZPmLIQTtbkjkZ16ZyBgeJwgvc_H_-OCufCyLDpwhG3DNSHl-5I_P5Wa5feKvJmuHbEZFNw-QJgdKlQe5XQUuLRkCVbKRwuLo1k6iXrtM8Dz8Szor45RTkScOls4sSv-q1DBx_-TWf5MZnSiqMhIyr-3UciLHeiX8aN9X4r--EWp_Wn_uH12EG2y-5UG-6vDfH-pKk6m9Wk0OW3bpOa_GoJUS"
-          onNotificationClick={() => showToast("Bạn có 2 thông báo gợi ý chuyến đi từ WanderAI!")}
-        />
-      )}
+      {/* Builder có thanh tiêu đề riêng */}
+      {activeTab !== "builder" && <Header />}
 
-      {/* View Content Renderer */}
       <main className="w-full mx-auto">
         <Routes>
-          <Route
-            path={PATHS.explore}
-            element={
-              <ExploreView
-                onSelectDestination={(dest) => showToast(`Đã chọn ${dest}`)}
-                onOpenAIPlan={handleOpenAIPlanForDestination}
-              />
-            }
-          />
+          <Route path={PATHS.explore} element={<ExploreView onOpenAIPlan={handleOpenAIPlanForDestination} />} />
           <Route path={PATHS.trending} element={<TrendingView onOpenAIPlan={handleOpenAIPlanForDestination} />} />
           <Route
             path={PATHS.ai_assistant}
             element={
               <AIAssistantView
-                onLoadItineraryToBuilder={handleLoadItineraryToBuilder}
+                onLoadItineraryToBuilder={openDraft}
                 prefillDestination={prefillAIDestination}
                 onClearPrefill={() => setPrefillAIDestination("")}
               />
@@ -114,39 +110,82 @@ export default function App() {
             path={PATHS.itinerary}
             element={
               <ItineraryListView
-                itineraries={itineraries}
-                currentItinerary={currentItinerary}
-                onSelectItinerary={handleSelectItinerary}
-                onDeleteItinerary={handleDeleteItinerary}
-                onOpenBuilder={() => setActiveTab("builder")}
+                itineraries={trips}
+                onOpenTrip={(id) => navigate(tripPath(id))}
+                onEditTrip={(id) => navigate(tripEditPath(id))}
+                onCreateTrip={openDraft}
+                onDeleteItinerary={handleDelete}
+              />
+            }
+          />
+          <Route path={PATHS.builder} element={draftElement} />
+          <Route
+            path="/trips/:id"
+            element={
+              <TripDetailRoute
+                trips={trips}
+                onBack={() => navigate(PATHS.itinerary)}
+                onEdit={(id) => navigate(tripEditPath(id))}
+                onDelete={handleDelete}
               />
             }
           />
           <Route
-            path={PATHS.builder}
+            path="/trips/:id/edit"
             element={
-              <ItineraryBuilderView
-                key={currentItinerary.id || "new"}
-                itineraryData={currentItinerary}
-                onSaveAndExport={handleSaveAndExport}
-                onBack={() => setActiveTab("itinerary")}
+              <TripEditRoute
+                trips={trips}
+                onSave={(d) => handleSave(d, false)}
+                onBack={(id) => navigate(id ? tripPath(id) : PATHS.itinerary)}
               />
             }
           />
-          <Route path={PATHS.settings} element={<SettingsView />} />
+          <Route path={PATHS.settings} element={<SettingsView onDraftCleared={() => setDraft(null)} />} />
           <Route path="*" element={<Navigate to={PATHS.explore} replace />} />
         </Routes>
       </main>
 
-      {/* Bottom Floating Toast Notification */}
       {toastMsg && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#1b1c1a] text-white text-[13px] font-medium px-4 py-2.5 rounded-full shadow-lg border border-white/20 transition-all animate-bounce">
+        <div
+          role="status"
+          className="fixed top-16 left-1/2 -translate-x-1/2 z-[70] w-max max-w-[calc(100vw-32px)] text-center bg-[#1b1c1a] text-white text-[13px] font-medium px-4 py-2.5 rounded-2xl shadow-lg border border-white/20"
+        >
           {toastMsg}
         </div>
       )}
 
-      {/* Fixed Bottom Navigation */}
       <Navbar activeTab={activeTab} onTabChange={setActiveTab} />
     </div>
+  );
+}
+
+interface TripRouteProps {
+  trips: WanderItineraryData[];
+}
+
+function TripDetailRoute({
+  trips,
+  onBack,
+  onEdit,
+  onDelete,
+}: TripRouteProps & { onBack: () => void; onEdit: (id: string) => void; onDelete: (id: string) => void }) {
+  const { id } = useParams();
+  const trip = id ? trips.find((t) => t.id === id) : undefined;
+  if (!trip?.id) return <TripNotFound onBack={onBack} />;
+  return (
+    <TripDetailPage trip={trip} onBack={onBack} onEdit={() => onEdit(trip.id!)} onDelete={() => onDelete(trip.id!)} />
+  );
+}
+
+function TripEditRoute({
+  trips,
+  onSave,
+  onBack,
+}: TripRouteProps & { onSave: (d: WanderItineraryData) => void; onBack: (id?: string) => void }) {
+  const { id } = useParams();
+  const trip = id ? trips.find((t) => t.id === id) : undefined;
+  if (!trip?.id) return <TripNotFound onBack={() => onBack()} />;
+  return (
+    <ItineraryBuilderView key={trip.id} itineraryData={trip} onSaveAndExport={onSave} onBack={() => onBack(trip.id)} />
   );
 }

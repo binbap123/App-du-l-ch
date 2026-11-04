@@ -1,5 +1,7 @@
 import React, { Suspense, lazy, useCallback, useMemo, useRef, useState } from "react";
 import { VERIFIED_VIETNAM_PLACES } from "../data/placesData";
+import { normalizeName } from "./map/mapUtils";
+import { filterByQuery } from "../lib/uiFormat";
 
 // Leaflet chỉ tải khi mở chế độ bản đồ
 const PlacesMap = lazy(() => import("./map/PlacesMap"));
@@ -13,14 +15,10 @@ const MAP_FILTERS = [
 type MapFilterId = (typeof MAP_FILTERS)[number]["id"];
 
 interface ExploreViewProps {
-  onSelectDestination: (destName: string) => void;
   onOpenAIPlan: (destName: string) => void;
 }
 
-export const ExploreView: React.FC<ExploreViewProps> = ({
-  onSelectDestination,
-  onOpenAIPlan,
-}) => {
+export const ExploreView: React.FC<ExploreViewProps> = ({ onOpenAIPlan }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [selectedCategory, setSelectedCategory] = useState<MapFilterId>("all");
@@ -34,7 +32,6 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
       title: "Vịnh Hạ Long",
       location: "Quảng Ninh, Việt Nam",
       tag: "Thiên nhiên",
-      rating: 4.9,
       imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuCuwFXQQyp_cy_d1SrK3rB4umhsqdOgKAjlUJCSgSUHm3VA9reVPoujuwBZ1XfY0bfmWzxh7vXmj9ZIUjcXYEWIeGCRMNgyoy3qUvNi4FT7-hsTRP8WXPfLVlSYJRppWGfag09cp6uf4emZZPduJN6iNc66AHmKb-bkWEIfrYJ4v_m-DpqGzJtsJ07EUPyZxDal27J5dUJuGZb3UD9_RhF5v2MvSlrXDRI3BpUK01f8WTCDEzBd4sD-",
     },
     {
@@ -42,15 +39,13 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
       title: "Cố đô Huế",
       location: "Thừa Thiên Huế",
       tag: "Lịch sử",
-      rating: 4.8,
       imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBamVqi82kE91WpwMhDWCKxiFFwKETksdgL7bKhJ2XKj28pGydUB5ccPL-rGDm3DMkbPLYUqGk_LjhV3UJxDghEwwbIsRtqUgyfxYaxf3FymP77oRXFUbyrjH1rGE3-rx8MuMy3m_J-22Ni_QkZ6ToEkcr6EudNLqAH_6KTGOfAXeUwgtCqnO9p_SWjZhdU3FMztLhK8kJYh5XEochW3kOplcjKV377oJvaGAeycn2h9o5XXCVEpKRf",
     },
     {
       id: "dalat",
-      title: "Đà Lạt Mộng Mơ",
+      title: "Đà Lạt",
       location: "Lâm Đồng, Việt Nam",
       tag: "Nghỉ dưỡng",
-      rating: 4.9,
       imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuCHWz4XfHJFN1sFi6DHrr9WoRDrImQhB990WTXerEss2qvN9KuLoS16GZmr14q5Tel0UFmrwwdNZEQ7qGUgvtz0iqch4AtndiD4uAPMQjkTT2FJxrXkUF0cgltMFxFdQiR1rn207BmpL6s9gRE7yNkytSls3t_bHTRFDWReAYu51Y24PLDuMcFy_E7vHoLKCguI2lbsNObWIo9QTrP1MJsZ8EaXAed1Sc9E0BVY1lqtUZziHbmWrN7J",
     }
   ];
@@ -81,6 +76,22 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
       imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBukuWpWVaV-Fg_ejRu0VIwoSIlJertplNFpWal1mQsPHYQRv6CCfuEtlncY0K80V5k4hH0L_lo69WvOsZ8kgKpoi_LjNtIPL95zdXrRZz5b46y7y85eNq8I_ctC4hyeKrqjXc8mqZIZ0JEE5UR2WWNLZW_q2SzispGVPWWcaMHjzNA0k9HSQ0K6kPa9pqEAPW4UcAdeDBIaBpLXIkHCC2D3Z8sMiKhtxJTA_o6PXu-5SE89bZdRaeV"
     }
   ];
+
+  const visibleRecommended = filterByQuery(recommendedCards, searchQuery, (c) => [c.title, c.tag, c.location]);
+  const visiblePopular = filterByQuery(popularCards, searchQuery, (c) => [c.title, c.tag]);
+  const trimmedQuery = searchQuery.trim();
+  const noCardMatch = trimmedQuery.length > 0 && visibleRecommended.length === 0 && visiblePopular.length === 0;
+
+  /** Enter: khớp đúng 1 thẻ → mở thẻ đó; không có thẻ nào → nhờ AI lập lịch trình cho từ khóa. */
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!trimmedQuery) return;
+    const all = [...visibleRecommended, ...visiblePopular];
+    const exact = all.find((c) => normalizeName(c.title) === normalizeName(trimmedQuery));
+    if (exact) onOpenAIPlan(exact.title);
+    else if (all.length === 0) onOpenAIPlan(trimmedQuery);
+    else if (all.length === 1) onOpenAIPlan(all[0].title);
+  };
 
   const filteredMapPlaces = useMemo(() => {
     const cat = MAP_FILTERS.find((f) => f.id === selectedCategory)?.category;
@@ -132,46 +143,58 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
             }`}
           >
             <span className="material-symbols-outlined text-[18px]">map</span>
-            Bản đồ & Địa điểm
+            Bản đồ
           </button>
         </div>
 
-        {/* Search Field */}
-        <div className="relative group">
-          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <span className="material-symbols-outlined text-[#9CA3AF] text-[20px]">search</span>
-          </div>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Bạn muốn đi đâu? (Ví dụ: Đà Nẵng, Phú Quốc, Hà Nội)"
-            className="w-full pl-11 pr-10 py-2.5 bg-white border border-[#E5E7EB] rounded-xl focus:border-[#FF6B35] focus:ring-1 focus:ring-[#FF6B35] transition-colors shadow-sm text-[14px] text-[#111827] placeholder:text-[#9CA3AF] outline-none"
-          />
-          <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-            <button className="p-1.5 rounded-full hover:bg-[#F3F4F6] text-[#6B7280]">
-              <span className="material-symbols-outlined text-[20px]">tune</span>
-            </button>
-          </div>
-        </div>
+        {viewMode === "list" && (
+          <form role="search" onSubmit={handleSearchSubmit} className="relative">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <span className="material-symbols-outlined text-[#9CA3AF] text-[20px]" aria-hidden="true">search</span>
+            </div>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Bạn muốn đi đâu?"
+              aria-label="Tìm điểm đến"
+              enterKeyHint="search"
+              data-testid="explore-search"
+              className="w-full pl-11 pr-4 py-2.5 bg-white border border-[#E5E7EB] rounded-xl focus:border-[#FF6B35] focus:ring-1 focus:ring-[#FF6B35] transition-colors shadow-sm text-[14px] text-[#111827] placeholder:text-[#9CA3AF] outline-none"
+            />
+          </form>
+        )}
       </div>
 
       {viewMode === "list" ? (
-        <main className="mt-4 flex flex-col gap-[28px]">
+        <div className="mt-4 flex flex-col gap-[28px]" data-testid="explore-list">
+          {noCardMatch && (
+            <section className="px-[20px]">
+              <div className="bg-white rounded-2xl border border-dashed border-[#E5E7EB] p-5 text-center">
+                <p className="text-[14px] text-[#111827] font-bold">Chưa có thẻ nào cho "{trimmedQuery}"</p>
+                <p className="text-[13px] text-[#6B7280] mt-1">Nhờ trợ lý AI lập lịch trình cho điểm đến này.</p>
+                <button
+                  onClick={() => onOpenAIPlan(trimmedQuery)}
+                  className="mt-3 sleek-gradient-bg text-white font-bold text-[13px] px-4 py-2 rounded-xl hover:opacity-95"
+                >
+                  Lập lịch trình {trimmedQuery}
+                </button>
+              </div>
+            </section>
+          )}
+
           {/* Đề xuất cho bạn (Recommended) */}
+          {visibleRecommended.length > 0 && (
           <section>
             <div className="px-[20px] mb-3 flex justify-between items-end">
               <h2 className="text-[18px] font-extrabold text-[#111827]">
                 Đề xuất cho bạn
               </h2>
-              <button className="text-[12px] font-bold text-[#FF6B35] hover:underline">
-                Xem tất cả
-              </button>
             </div>
 
             {/* Horizontal Scroll */}
             <div className="flex overflow-x-auto gap-4 px-[20px] pb-2 hide-scrollbar snap-x snap-mandatory">
-              {recommendedCards.map((card) => (
+              {visibleRecommended.map((card) => (
                 <div
                   key={card.id}
                   onClick={() => onOpenAIPlan(card.title)}
@@ -202,17 +225,6 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
                       <span className="text-[11px] font-extrabold uppercase tracking-wider bg-[#FFF7ED] text-[#FF6B35] py-1 px-2.5 rounded-md border border-[#FFEDD5]">
                         {card.tag}
                       </span>
-                      <div className="flex items-center gap-1 text-[#FF9F43]">
-                        <span
-                          className="material-symbols-outlined text-[16px]"
-                          style={{ fontVariationSettings: "'FILL' 1" }}
-                        >
-                          star
-                        </span>
-                        <span className="text-[12px] font-bold text-[#111827]">
-                          {card.rating}
-                        </span>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -220,13 +232,16 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
             </div>
           </section>
 
+          )}
+
           {/* Điểm đến phổ biến (Popular Grid) */}
+          {visiblePopular.length > 0 && (
           <section className="px-[20px]">
             <h2 className="text-[18px] font-extrabold text-[#111827] mb-3">
               Điểm đến phổ biến
             </h2>
             <div className="grid grid-cols-2 gap-4">
-              {popularCards.map((pop) => (
+              {visiblePopular.map((pop) => (
                 <div
                   key={pop.id}
                   onClick={() => onOpenAIPlan(pop.title)}
@@ -255,7 +270,8 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
               ))}
             </div>
           </section>
-        </main>
+          )}
+        </div>
       ) : (
         /* Map View Mode — Leaflet + OpenStreetMap, dữ liệu thật từ placesData */
         <div className="relative h-[calc(100vh-210px)] w-full overflow-hidden flex flex-col font-sans">
