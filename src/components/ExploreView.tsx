@@ -240,7 +240,8 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
               loading="lazy"
               allowFullScreen
               referrerPolicy="no-referrer-when-downgrade"
-              src={`https://www.google.com/maps/embed/v1/search?key=AIzaSyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY&q=${encodeURIComponent(activeMapPlace.name + ", Việt Nam")}&zoom=14`}
+              // TODO(agent-map): thay iframe + MOCK_MAP_PLACES bằng <TripMap> (Leaflet + OSM). Embed tạm không cần API key.
+              src={`https://maps.google.com/maps?q=${encodeURIComponent(activeMapPlace.name + ", Việt Nam")}&z=14&output=embed`}
             />
           </div>
 

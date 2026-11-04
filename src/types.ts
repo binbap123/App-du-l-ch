@@ -27,7 +27,11 @@ export interface ScheduleItem {
   image_url?: string;
   lat?: number;
   lng?: number;
+  /** Nguồn tọa độ: DB đã xác minh > geocode (Nominatim) > AI ước lượng. UI phải hiện khác nhau. */
+  geo_source?: GeoSource;
 }
+
+export type GeoSource = "verified" | "geocoded" | "ai_estimate";
 
 export interface DayItinerary {
   day_number: number;
@@ -62,7 +66,13 @@ export interface MapConfig {
 }
 
 export interface WanderItineraryData {
+  /** tripStore (Agent Data) luôn gán id khi lưu; dữ liệu từ AI chưa lưu có thể chưa có. */
   id?: string;
+  /** ISO timestamps — tripStore gán */
+  created_at?: string;
+  updated_at?: string;
+  /** Ngày bắt đầu chuyến đi (YYYY-MM-DD), để builder hiển thị ngày thật */
+  start_date?: string;
   meta: MetaInfo;
   map_config: MapConfig;
   itinerary: DayItinerary[];
@@ -103,4 +113,13 @@ export interface TrendingSpot {
   category: "food" | "attraction" | "cafe" | "nature";
   description: string;
   savedAt?: string;
+}
+
+/** Nguồn dữ liệu do server trả về, để UI gắn nhãn "Lịch trình mẫu" khi fallback. */
+export type DataSource = "gemini" | "cache" | "sample" | "error" | "verified" | "database";
+
+/** Body lỗi chuẩn của mọi /api */
+export interface ApiErrorBody {
+  success: false;
+  error: { code: string; message: string };
 }
