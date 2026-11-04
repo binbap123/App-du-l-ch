@@ -46,7 +46,7 @@ export const VERIFIED_VIETNAM_PLACES: PlaceSearchResult[] = [
     social_trend: {
       is_viral: true,
       platform: "tiktok",
-      badge_label: "🔥 Nổi tiếng trên TikTok"
+      badge_label: "Nổi tiếng trên TikTok"
     },
     google_maps_url: "https://www.google.com/maps/search/?api=1&query=Banh+Trang+Thit+Heo+Hoang+Dieu+Da+Nang",
     lat: 16.0645,

@@ -131,3 +131,17 @@ describe("tọa độ lịch trình mẫu", () => {
     for (const it of items) expect(it.social_trend?.badge_label || "").not.toMatch(/\d(\.\d)?\s*[MK]\s*views?/i);
   });
 });
+
+import { insertByTime, startMinutes } from "../src/lib/uiFormat";
+describe("insertByTime", () => {
+  const day = [{ time_slot: "08:00 - 09:30" }, { time_slot: "14:30 - 16:30" }, { time_slot: "18:30 - 21:30" }];
+  it("chèn gợi ý 11:30 vào giữa, không để cuối ngày", () => {
+    expect(insertByTime(day, { time_slot: "11:30 - 12:30" }).map((s) => s.time_slot)[1]).toBe("11:30 - 12:30");
+  });
+  it("item không có giờ thì để cuối", () => {
+    expect(insertByTime(day, { time_slot: "" }).at(-1)?.time_slot).toBe("");
+  });
+  it("đọc giờ dạng PM", () => {
+    expect(startMinutes("6:00 PM")).toBe(18 * 60);
+  });
+});

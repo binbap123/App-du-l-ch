@@ -3,7 +3,7 @@ import { WanderItineraryData, ScheduleItem, DayItinerary } from "../types";
 import { PlaceSearchModal } from "./PlaceSearchModal";
 import { useSuggestions } from "../hooks/useSuggestions";
 import { formatVnd } from "./map/mapUtils";
-import { dayLabel, formatThousands, isValidIsoDate, parseCostInput, sumScheduleCost } from "../lib/uiFormat";
+import { dayLabel, formatThousands, isValidIsoDate, parseCostInput, sumScheduleCost, insertByTime } from "../lib/uiFormat";
 
 interface ItineraryBuilderViewProps {
   itineraryData: WanderItineraryData;
@@ -101,14 +101,14 @@ export const ItineraryBuilderView: React.FC<ItineraryBuilderViewProps> = ({
 
   const handleAddPlaceFromSearch = (targetDayIdx: number, newItem: ScheduleItem) => {
     if (!data.itinerary[targetDayIdx]) return;
-    updateDay(targetDayIdx, (d) => ({ ...d, schedule: [...(d.schedule || []), newItem] }));
+    updateDay(targetDayIdx, (d) => ({ ...d, schedule: insertByTime(d.schedule || [], newItem) }));
     setActiveDayIndex(targetDayIdx);
     showToast(`Đã thêm "${newItem.place_name}" vào ngày ${targetDayIdx + 1}`);
   };
 
   const handleAddSuggestion = (sug: ScheduleItem) => {
     const newItem: ScheduleItem = { ...sug, id: `${sug.id || "sg"}_${Date.now()}` };
-    updateDay(activeDayIndex, (d) => ({ ...d, schedule: [...d.schedule, newItem] }));
+    updateDay(activeDayIndex, (d) => ({ ...d, schedule: insertByTime(d.schedule, newItem) }));
     setAddedSuggestionIds((prev) => new Set(prev).add(sug.id));
     showToast(`Đã thêm "${sug.place_name}" vào ngày ${activeDayIndex + 1}`);
   };

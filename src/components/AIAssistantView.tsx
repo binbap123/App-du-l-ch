@@ -154,7 +154,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
                       className="w-full py-2.5 sleek-gradient-bg text-white rounded-xl font-bold text-[13px] flex items-center justify-center gap-1.5 shadow-[0_4px_12px_rgba(255,107,53,0.25)] hover:opacity-95 transition-all"
                     >
                       <span className="material-symbols-outlined text-[16px]">edit_calendar</span>
-                      Mở trong Trình thiết kế lịch trình
+                      Mở trong Trình thiết kế
                     </button>
                   </div>
                 )}
@@ -183,16 +183,13 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
       {/* Sticky Chat Input */}
       <div className="fixed bottom-[76px] left-0 w-full px-[20px] py-2.5 bg-gradient-to-t from-[#F0F2F5] via-[#F0F2F5] to-transparent z-30">
         <div className="flex items-center gap-2 bg-white rounded-full p-1.5 border border-[#E5E7EB] focus-within:border-[#FF6B35] focus-within:ring-1 focus-within:ring-[#FF6B35] transition-all shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
-          <button className="p-2 text-[#6B7280] hover:text-[#FF6B35] transition-colors">
-            <span className="material-symbols-outlined text-[22px]">add_circle</span>
-          </button>
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
             placeholder="Nhập câu hỏi hoặc điểm đến của bạn..."
-            className="flex-1 bg-transparent border-none focus:ring-0 text-[14px] text-[#111827] placeholder:text-[#9CA3AF] px-1 outline-none font-medium"
+            className="flex-1 bg-transparent border-none focus:ring-0 text-[14px] text-[#111827] placeholder:text-[#9CA3AF] pl-3 pr-1 outline-none font-medium"
           />
           <button
             onClick={() => handleSendMessage()}

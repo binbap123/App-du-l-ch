@@ -75,3 +75,26 @@ export function filterByQuery<T>(items: T[], query: string, fields: (item: T) =>
 export function exportFileName(now: Date = new Date()): string {
   return `wanderai-chuyen-di-${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}.json`;
 }
+
+/** Phút bắt đầu từ time_slot ("08:00 - 09:30", "18:00 PM"); không đọc được thì trả null. */
+export function startMinutes(timeSlot: string | undefined | null): number | null {
+  const m = /(\d{1,2})[:h](\d{2})/i.exec(timeSlot || "");
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  if (/pm/i.test(timeSlot || "") && h < 12) h += 12;
+  return h * 60 + parseInt(m[2], 10);
+}
+
+/**
+ * Chèn item vào lịch theo giờ bắt đầu. Item không có giờ thì để cuối.
+ * Không sắp xếp lại các item sẵn có (giữ thứ tự người dùng đã chọn).
+ */
+export function insertByTime<T extends { time_slot?: string }>(schedule: T[], item: T): T[] {
+  const t = startMinutes(item.time_slot);
+  if (t === null) return [...schedule, item];
+  const idx = schedule.findIndex((s) => {
+    const st = startMinutes(s.time_slot);
+    return st !== null && st > t;
+  });
+  return idx < 0 ? [...schedule, item] : [...schedule.slice(0, idx), item, ...schedule.slice(idx)];
+}
