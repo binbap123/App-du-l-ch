@@ -148,6 +148,8 @@ src/
 **Xong khi (chung):** mọi nút đều có tác dụng hoặc đã bị xóa; mỗi trang có URL riêng, reload đúng trang; `npm run check` pass; giao diện mobile 390px không bị tràn ngang.
 
 ### Phase 3: Gộp, review, deploy (Opus high)
+
+**Trạng thái: review và chuẩn bị deploy đã xong (04/11/2026).** Đã sửa: ẩn rating chưa xác minh trong dữ liệu địa điểm viết tay (rating thật từ SerpApi vẫn hiện), gộp hai bộ chọn ngày trên trang chi tiết, thêm security header cơ bản, giới hạn vitest chỉ chạy thư mục `tests/` (trước đó bị đếm trùng test trong worktree của agent; số đúng là 94 test). Đã giả lập build Render từ bản clone sạch và chạy lại 31 bước smoke test. Còn lại: người dùng tự tạo service trên Render từ nhánh `wanderai-v2` và điền `GEMINI_API_KEY`; kiểm tra ảnh, nền bản đồ và geocode trên bản deploy thật (môi trường thử bị chặn mạng).
 1. Merge các worktree, giải quyết conflict, review chéo từng agent theo tiêu chí "Xong khi".
 2. Smoke test bằng Playwright: tạo trip qua AI → sửa → reload → xem map → export. Chụp screenshot mobile và desktop.
 3. Deploy theo D2, set env, kiểm tra `/api/health`. Ghi hướng dẫn deploy vào README.
