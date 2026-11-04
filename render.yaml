@@ -1,0 +1,25 @@
+# Render Blueprint — deploy WanderAI lên Render free (không cần thẻ).
+# Render Dashboard → New → Blueprint → chọn repo này. Sau đó điền GEMINI_API_KEY trong tab Environment.
+services:
+  - type: web
+    name: wanderai
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: GEMINI_MODEL
+        value: gemini-3.7-flash
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SERPAPI_API_KEY
+        sync: false
+      - key: SERPAPI_AUTOCOMPLETE
+        value: "false"
