@@ -1,5 +1,17 @@
 import React, { useState, useRef, useEffect } from "react";
-import { ChatMessage, WanderItineraryData } from "../types";
+import { WanderItineraryData } from "../types";
+import { useChat } from "../hooks/useChat";
+
+/** Hiển thị **đậm** đơn giản trong câu trả lời AI (không dùng innerHTML). */
+function renderInlineBold(text: string): React.ReactNode[] {
+  return text.split(/(\*\*[^*\n]+\*\*)/g).map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") && part.length > 4 ? (
+      <strong key={i}>{part.slice(2, -2)}</strong>
+    ) : (
+      <React.Fragment key={i}>{part}</React.Fragment>
+    )
+  );
+}
 
 interface AIAssistantViewProps {
   onLoadItineraryToBuilder: (data: WanderItineraryData) => void;
@@ -12,18 +24,10 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
   prefillDestination,
   onClearPrefill,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "m1",
-      sender: "ai",
-      text: "Bạn có thể hỏi tôi bất cứ điều gì, từ việc tìm vé máy bay rẻ, đặt phòng khách sạn, cho đến việc lên một lịch trình chi tiết từng giờ.",
-      timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
-    },
-  ]);
+  // Chat lưu trong store + localStorage (src/hooks/useChat.ts) → chuyển tab vẫn còn.
+  const { messages, isLoading, sendMessage, clearChat } = useChat();
   const [inputText, setInputText] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const isSendingRef = useRef(false);
   const handledPrefillRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -39,62 +43,14 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
     }
   }, [prefillDestination, onClearPrefill]);
 
-  const handleSendMessage = async (textToSend?: string) => {
+  const handleSendMessage = (textToSend?: string) => {
     const query = (textToSend || inputText).trim();
-    if (!query || isSendingRef.current) return;
-
-    isSendingRef.current = true;
-    setIsLoading(true);
+    if (!query || isLoading) return;
     if (!textToSend) setInputText("");
-
-    const msgId = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    const userMsg: ChatMessage = {
-      id: msgId,
-      sender: "user",
-      text: query,
-      timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-
-    try {
-      // Call the unified chat API with history
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: query,
-          conversationHistory: messages.map((m) => ({ sender: m.sender, text: m.text })),
-        }),
-      });
-
-      const result = await response.json();
-
-      const aiMsg: ChatMessage = {
-        id: `${Date.now() + 1}-${Math.random().toString(36).substring(2, 7)}`,
-        sender: "ai",
-        text: result.reply || "Xin lỗi, tôi gặp sự cố nhỏ. Hãy thử lại nhé!",
-        timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
-        itineraryData: result.itinerary || undefined,
-      };
-
-      setMessages((prev) => [...prev, aiMsg]);
-    } catch (error) {
-      console.error(error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `${Date.now() + 1}-${Math.random().toString(36).substring(2, 7)}`,
-          sender: "ai",
-          text: "Xin lỗi, hiện tại tôi không thể kết nối server. Hãy kiểm tra kết nối mạng và thử lại nhé!",
-          timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-      isSendingRef.current = false;
-    }
+    void sendMessage(query);
   };
+
+  const hasConversation = messages.some((m) => m.sender === "user");
 
   return (
     <div className="flex flex-col h-[calc(100vh-76px)] overflow-hidden pb-[96px]">
@@ -116,6 +72,18 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
           <p className="text-[14px] leading-[20px] text-[#6B7280] max-w-[300px]">
             Hôm nay bạn muốn bắt đầu hành trình nào? Hãy để tôi giúp bạn lên kế hoạch hoàn hảo.
           </p>
+          {hasConversation && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm("Bắt đầu cuộc trò chuyện mới? Tin nhắn hiện tại sẽ bị xoá.")) clearChat();
+              }}
+              className="mt-2.5 inline-flex items-center gap-1 text-[12px] font-bold text-[#6B7280] hover:text-[#FF6B35] bg-white border border-[#E5E7EB] rounded-full px-3 py-1 transition-colors"
+            >
+              <span className="material-symbols-outlined text-[14px]">add_comment</span>
+              Cuộc trò chuyện mới
+            </button>
+          )}
         </div>
 
         {/* Chat History Messages */}
@@ -145,12 +113,21 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
                     : "bg-white border border-[#E5E7EB] text-[#111827] rounded-tl-none"
                 }`}
               >
-                <p className="whitespace-pre-line">{msg.text}</p>
+                <p className="whitespace-pre-line">{msg.sender === "ai" ? renderInlineBold(msg.text) : msg.text}</p>
 
                 {/* Rich Itinerary Result Card */}
                 {msg.itineraryData && (
                   <div className="mt-3 pt-3 border-t border-[#E5E7EB] flex flex-col gap-2">
                     <div className="bg-[#FFF7ED] p-3.5 rounded-xl border border-[#FFEDD5]">
+                      {msg.source === "sample" && (
+                        <span
+                          className="inline-flex items-center gap-1 mb-1.5 text-[11px] font-extrabold bg-[#F3F4F6] text-[#4B5563] px-2 py-0.5 rounded-full border border-[#E5E7EB]"
+                          title="AI chưa khả dụng nên đây là lịch trình mẫu có sẵn, không phải do AI tạo riêng cho bạn"
+                        >
+                          <span className="material-symbols-outlined text-[13px]" aria-hidden="true">info</span>
+                          <span>Lịch trình mẫu</span>
+                        </span>
+                      )}
                       <div className="flex justify-between items-center mb-1">
                         <span className="font-extrabold text-[#111827]">
                           {msg.itineraryData.meta.destination} - {msg.itineraryData.meta.trip_duration}
