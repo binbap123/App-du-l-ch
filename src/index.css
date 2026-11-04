@@ -73,3 +73,17 @@
   animation: bounceSlow 2.5s infinite ease-in-out;
 }
 
+
+/* Leaflet (Agent Map): marker divIcon không có nền/viền mặc định; ở Explore, đẩy control đáy (attribution OSM bắt buộc)
+   lên trên carousel card để luôn nhìn thấy. */
+.wa-num-marker,
+.wa-place-marker {
+  background: transparent;
+  border: none;
+}
+.wa-explore-map .leaflet-bottom {
+  bottom: 210px;
+}
+.leaflet-container {
+  font-family: inherit;
+}
