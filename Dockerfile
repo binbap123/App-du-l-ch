@@ -1,23 +1,16 @@
-FROM node:20-slim
-
+FROM node:20-slim AS build
 WORKDIR /app
-
-# Copy package manifests
 COPY package*.json ./
-
-# Install dependencies
-RUN npm install
-
-# Copy application source
+RUN npm ci
 COPY . .
+RUN npm run build && npm prune --omit=dev
 
-# Build client and server bundles
-RUN npm run build
-
-# Production runtime variables
+FROM node:20-slim
+WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
-
+COPY --from=build /app/package*.json ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
 EXPOSE 8080
-
 CMD ["node", "dist/server.cjs"]

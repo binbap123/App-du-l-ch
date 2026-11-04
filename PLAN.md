@@ -6,9 +6,11 @@
 
 ---
 
-## 0. Bạn cần chốt trước khi chạy
+## 0. Quyết định đã chốt (04/11/2026)
 
-| # | Quyết định | Mình đề xuất | Phương án khác |
+**Đã chốt: D1 = localStorage, D2 = Render free, D3 = Leaflet + OSM, D4 = giữ SerpApi có giới hạn.**
+
+| # | Quyết định | Phương án đã chọn | Phương án khác |
 |---|---|---|---|
 | D1 | Lưu chuyến đi ở đâu | **localStorage trên trình duyệt**: miễn phí, mỗi người chỉ thấy trip của mình, không cần đăng nhập, server không giữ state | Supabase free (Postgres + đăng nhập): đồng bộ nhiều máy, nhưng phức tạp hơn và project free bị tạm dừng nếu lâu không dùng. Có thể làm sau |
 | D2 | Host miễn phí | **Render free web service** (ngủ sau ~15 phút không dùng, mở lại mất ~30–60s). Kiểm tra điều khoản lúc deploy | Cloud Run: bắt buộc gắn tài khoản billing có thẻ, trái với mục tiêu "không gắn billing" |
@@ -71,7 +73,7 @@ src/
 ```
 
 ### 2.2 Kiểu dữ liệu (`src/types.ts`)
-- Giữ `WanderItineraryData`, thêm `id: string` (bắt buộc), `created_at`, `updated_at` (ISO), `start_date?: string`.
+- Giữ `WanderItineraryData`; thêm `created_at?`, `updated_at?` (ISO), `start_date?` (YYYY-MM-DD). `id` vẫn optional trong type (lịch trình AI chưa lưu chưa có id) nhưng `tripStore` **luôn** gán id khi lưu.
 - `ScheduleItem`: giữ nguyên, thêm `geo_source?: "verified" | "geocoded" | "ai_estimate"` đi kèm `lat/lng`.
 - Kiểu lỗi API chuẩn: `{ success: false, error: { code: string, message: string } }`.
 - Response AI có thêm `source: "gemini" | "cache" | "sample"` để UI hiện nhãn "Lịch trình mẫu" khi fallback.
@@ -99,6 +101,8 @@ src/
 5. FE: `ErrorBoundary`, `lib/api.ts`, khung React Router (giữ các trang cũ làm route), xóa key Maps hardcode.
 6. Thêm `vitest` cùng vài test mẫu; script `npm run check` = lint + test + build.
 7. Cập nhật `.env.example` và README.
+
+**Trạng thái: ✅ XONG (04/11/2026).**
 
 **Xong khi:** `npm run check` pass, app chạy như cũ (không đổi tính năng), mọi file trong 2.1 đã tồn tại kèm stub và comment `TODO(agent-x)`.
 

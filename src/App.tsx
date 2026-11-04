@@ -4,8 +4,11 @@
  */
 
 import { useState, useEffect } from "react";
+import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { TabType, WanderItineraryData } from "./types";
+import { PATHS, tabFromPath } from "./routes";
 import { DEFAULT_ITINERARY_DANANG } from "./data/mockData";
+import { fetchJson } from "./lib/api";
 import { Header } from "./components/Header";
 import { Navbar } from "./components/Navbar";
 import { ExploreView } from "./components/ExploreView";
@@ -16,7 +19,10 @@ import { TrendingView } from "./components/TrendingView";
 import { SettingsView } from "./components/SettingsView";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabType>("explore");
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeTab = tabFromPath(location.pathname);
+  const setActiveTab = (tab: TabType) => navigate(PATHS[tab]);
   const [itineraries, setItineraries] = useState<WanderItineraryData[]>([]);
   const [currentItinerary, setCurrentItinerary] =
     useState<WanderItineraryData>(DEFAULT_ITINERARY_DANANG);
@@ -28,12 +34,12 @@ export default function App() {
     setTimeout(() => setToastMsg(null), 3500);
   };
 
+  // TODO(agent-data): thay toàn bộ state + fetch /api/itineraries bên dưới bằng useTrips() (localStorage, D1).
   // Load itineraries from database on mount
   useEffect(() => {
     const loadItineraries = async () => {
       try {
-        const res = await fetch("/api/itineraries");
-        const result = await res.json();
+        const result = await fetchJson("/api/itineraries");
         if (result.success && Array.isArray(result.data)) {
           setItineraries(result.data);
           if (result.data.length > 0) {
@@ -59,12 +65,7 @@ export default function App() {
 
   const handleLoadItineraryToBuilder = async (itineraryData: WanderItineraryData) => {
     try {
-      const res = await fetch("/api/itineraries", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(itineraryData),
-      });
-      const result = await res.json();
+      const result = await fetchJson("/api/itineraries", { method: "POST", body: itineraryData });
       if (result.success) {
         setItineraries(result.allItineraries);
         const savedData = result.data;
@@ -84,12 +85,7 @@ export default function App() {
 
   const handleSaveAndExport = async (updatedData: WanderItineraryData) => {
     try {
-      const res = await fetch("/api/itineraries", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedData),
-      });
-      const result = await res.json();
+      const result = await fetchJson("/api/itineraries", { method: "POST", body: updatedData });
       if (result.success) {
         setItineraries(result.allItineraries);
         setCurrentItinerary(result.data);
@@ -106,10 +102,7 @@ export default function App() {
 
   const handleDeleteItinerary = async (id: string) => {
     try {
-      const res = await fetch(`/api/itineraries/${id}`, {
-        method: "DELETE",
-      });
-      const result = await res.json();
+      const result = await fetchJson(`/api/itineraries/${id}`, { method: "DELETE" });
       if (result.success) {
         setItineraries(result.allItineraries);
         showToast("Đã xóa lịch trình thành công!");
@@ -167,45 +160,54 @@ export default function App() {
 
       {/* View Content Renderer */}
       <main className="w-full mx-auto">
-        {activeTab === "explore" && (
-          <ExploreView
-            onSelectDestination={(dest) => showToast(`Đã chọn ${dest}`)}
-            onOpenAIPlan={handleOpenAIPlanForDestination}
+        <Routes>
+          <Route
+            path={PATHS.explore}
+            element={
+              <ExploreView
+                onSelectDestination={(dest) => showToast(`Đã chọn ${dest}`)}
+                onOpenAIPlan={handleOpenAIPlanForDestination}
+              />
+            }
           />
-        )}
-
-        {activeTab === "trending" && (
-          <TrendingView onOpenAIPlan={handleOpenAIPlanForDestination} />
-        )}
-
-        {activeTab === "ai_assistant" && (
-          <AIAssistantView
-            onLoadItineraryToBuilder={handleLoadItineraryToBuilder}
-            prefillDestination={prefillAIDestination}
-            onClearPrefill={() => setPrefillAIDestination("")}
+          <Route path={PATHS.trending} element={<TrendingView onOpenAIPlan={handleOpenAIPlanForDestination} />} />
+          <Route
+            path={PATHS.ai_assistant}
+            element={
+              <AIAssistantView
+                onLoadItineraryToBuilder={handleLoadItineraryToBuilder}
+                prefillDestination={prefillAIDestination}
+                onClearPrefill={() => setPrefillAIDestination("")}
+              />
+            }
           />
-        )}
-
-        {activeTab === "itinerary" && (
-          <ItineraryListView
-            itineraries={itineraries}
-            currentItinerary={currentItinerary}
-            onSelectItinerary={handleSelectItinerary}
-            onDeleteItinerary={handleDeleteItinerary}
-            onOpenBuilder={() => setActiveTab("builder")}
-            onExportGoogleMaps={handleExportGoogleMaps}
+          <Route
+            path={PATHS.itinerary}
+            element={
+              <ItineraryListView
+                itineraries={itineraries}
+                currentItinerary={currentItinerary}
+                onSelectItinerary={handleSelectItinerary}
+                onDeleteItinerary={handleDeleteItinerary}
+                onOpenBuilder={() => setActiveTab("builder")}
+                onExportGoogleMaps={handleExportGoogleMaps}
+              />
+            }
           />
-        )}
-
-        {activeTab === "builder" && (
-          <ItineraryBuilderView
-            itineraryData={currentItinerary}
-            onSaveAndExport={handleSaveAndExport}
-            onBack={() => setActiveTab("itinerary")}
+          <Route
+            path={PATHS.builder}
+            element={
+              <ItineraryBuilderView
+                key={currentItinerary.id || "new"}
+                itineraryData={currentItinerary}
+                onSaveAndExport={handleSaveAndExport}
+                onBack={() => setActiveTab("itinerary")}
+              />
+            }
           />
-        )}
-
-        {activeTab === "settings" && <SettingsView />}
+          <Route path={PATHS.settings} element={<SettingsView />} />
+          <Route path="*" element={<Navigate to={PATHS.explore} replace />} />
+        </Routes>
       </main>
 
       {/* Bottom Floating Toast Notification */}

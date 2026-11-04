@@ -1,20 +1,48 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# WanderAI
 
-# Run and deploy your AI Studio app
+Ứng dụng lên lịch trình du lịch Việt Nam bằng AI (React + Vite + Tailwind, Express, Gemini).
 
-This contains everything you need to run your app locally.
+## Chạy trên máy
 
-View your app in AI Studio: https://ai.studio/apps/0f79b0dd-2800-4a40-acc7-41228551658a
+Cần Node.js 20+.
 
-## Run Locally
+```bash
+npm install
+cp .env.example .env.local   # Windows: copy .env.example .env.local
+# điền GEMINI_API_KEY vào .env.local
+npm run dev                  # http://localhost:3000
+```
 
-**Prerequisites:**  Node.js
+## Lệnh
 
+| Lệnh | Việc |
+|---|---|
+| `npm run dev` | Server dev (Express + Vite middleware) |
+| `npm run check` | Typecheck + test + build — chạy trước mỗi lần commit |
+| `npm run build` | Build client vào `dist/` và server vào `dist/server.cjs` |
+| `npm start` | Chạy bản build |
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Cấu trúc
+
+```
+server/
+  index.ts        khởi động server (dev: Vite middleware, prod: phục vụ dist/)
+  app.ts          tạo Express app, mount routes
+  env.ts          nạp .env.local / .env
+  lib/            gemini, cache, rate limit, validate, http helpers
+  routes/         chat, itinerary, suggest, places, geocode, trending
+  schemas/        responseSchema Gemini dùng chung
+  prompts/        system prompt
+src/
+  components/     các màn hình
+  lib/api.ts      fetchJson() có timeout, dùng cho mọi lời gọi /api
+  routes.tsx      URL của từng màn hình
+  types.ts        kiểu dữ liệu dùng chung (hợp đồng FE ↔ BE)
+tests/            vitest
+```
+
+Kế hoạch phát triển: xem [PLAN.md](PLAN.md).
+
+## Deploy
+
+Hướng dẫn deploy lên Render (miễn phí) sẽ được bổ sung ở Phase 3 của PLAN.md.
